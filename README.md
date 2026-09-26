@@ -18,6 +18,30 @@ python -m pytest
 python main.py
 ```
 
+## Ma'lumotlar bazasi
+
+PostgreSQL 15+ (Supabase ham shu versiyada) kerak — sxemada `UNIQUE NULLS NOT DISTINCT` ishlatilgan.
+
+```bash
+# .env da SUPABASE_DB_URL=postgresql://... bo'lishi kerak
+python -m app.database.migrate --status   # qaysi migration'lar qo'llangan
+python -m app.database.migrate            # kutilayotganlarini qo'llash (qayta ishga tushirish xavfsiz)
+```
+
+- Migration'lar: `migrations/NNN_nom.sql`, har biri bitta tranzaksiyada, `schema_migrations` ga checksum bilan yoziladi.
+  Qo'llangan faylni o'zgartirmang — yangi fayl yozing.
+- Barcha jadvallarda RLS yoqilgan: Supabase public API (anon key) orqali ma'lumot o'qib bo'lmaydi;
+  bot to'g'ridan-to'g'ri `SUPABASE_DB_URL` orqali ishlaydi.
+
+Database testlari uchun alohida (production bo'lmagan) PostgreSQL:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres python -m pytest
+```
+
+Har bir test sessiyasi vaqtinchalik baza yaratadi va oxirida o'chiradi. `TEST_DATABASE_URL` bo'lmasa
+database testlari o'tkazib yuboriladi.
+
 ## Tuzilma
 
 | Yo'l | Vazifa |
@@ -25,7 +49,9 @@ python main.py
 | `lexuz.py` | Lex.uz fetch client (timeout, retry, backoff, delay, cache), parser, holat, versiyalar |
 | `app/config.py` | `.env` dan sozlamalar (model ID'lari kodda yo'q) |
 | `app/utils/logging.py` | request_id (UUID) bilan logging, secret'larni yashirish |
-| `app/{bot,collector,retrieval,ai,database,services,scheduler,security}/` | keyingi bosqichlar |
+| `app/database/migrate.py` | migration runner |
+| `migrations/` | SQL sxema |
+| `app/{bot,collector,retrieval,ai,services,scheduler,security}/` | keyingi bosqichlar |
 | `skill-bilimlar/` | ichki bilimlar bazasi (Lex.uz o'rnini bosmaydi) |
 | `tests/` | pytest testlari; `tests/fixtures/lexuz/` — real Lex.uz HTML namunalari |
 
