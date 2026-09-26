@@ -49,7 +49,7 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
       status CHECK, versiyalash, o'zgarishlar jurnali, RLS, FK/cascade, FTS + trigram qidiruv
 - [x] Test skeleton: search (10 savol), hallucination (10 holat), citation — PHASE 3/4 uchun SKIP
 - [x] README: DB o'rnatish va testlar
-- Natija: `TEST_DATABASE_URL` bilan 94 passed; usiz 67 passed, 52 skipped
+- Natija: `TEST_DATABASE_URL` bilan 94 passed, 25 skipped (skelet); usiz 67 passed, 52 skipped
 
 ### Sxema: spec'dan farqlar
 | O'zgarish | Sabab |
