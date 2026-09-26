@@ -2,33 +2,42 @@
 
 Spec: `docs/MASTER_SPEC.md` (v3).
 
-## PHASE 0 — Repository audit va Lex.uz parser (davom etmoqda)
+## PHASE 0 — Repository audit va Lex.uz parser ✅ (user tasdig'ini kutmoqda)
 
 ### Bajarildi
-- [x] Repository tuzilmasi (`app/` modullari, `tests/`, `migrations/`, `skill-bilimlar/`)
-- [x] Python 3.11+ setup: `requirements.txt`, `requirements-dev.txt`, `pyproject.toml` (pytest)
-- [x] `.env.example`, `.gitignore`
-- [x] Config (`app/config.py`) va logging (`app/utils/logging.py`: request_id, secret redaction)
-- [x] `lexuz.py` fetch client: timeout, retry (408/425/429/5xx, tarmoq xatolari), exponential backoff,
-      `Retry-After`, so'rovlar orasida delay, disk cache (TTL), ketma-ket so'rovlar, faqat lex.uz host
-- [x] `doc_url` (`?ONDATE=DD.MM.YYYY` bilan) va `elem_link` (`https://lex.uz/docs/<doc>#<elem>`)
-- [x] Testlar: 29 ta, hammasi o'tadi (fetch/retry/cache/HTTP error/bo'sh javob, config, logging)
-- [x] README skeleton
-- [x] `skill-bilimlar/` — foydalanuvchi skill'idan ko'chirildi
+- [x] Repository tuzilmasi, Python 3.11+ setup, `requirements*.txt`, `pyproject.toml`
+- [x] `.env.example`, `.gitignore`, config (`app/config.py`), logging (`app/utils/logging.py`)
+- [x] Lex.uz agreement tekshirildi (pastga qarang)
+- [x] `lexuz.py` fetch client: timeout, retry, exponential backoff, `Retry-After`, delay, disk cache, cookie'siz mustaqil so'rovlar
+- [x] `lexuz.parse_doc` — metadata + elementlar (ID, tur, modda, bob, yo'l, matn, jadval, izohlar, canonical link)
+- [x] `lexuz.parse_card` + `resolve_status` — rasmiy holat (amalda / kuchga_kirmagan / kuchini_yoqotgan / noma'lum)
+- [x] `lexuz.load` — joriy yoki tarixiy (`pick_version` bilan) versiya; `load_card`
+- [x] Testlar: 65 ta, hammasi o'tadi; parser testlari real HTML fixture'larda (`tests/fixtures/lexuz/`)
+- [x] Jonli tekshiruv: Soliq kodeksi joriy, 01.01.2025 va 12.12.2026 versiyalari, kartochka — ishladi
+- [x] `skill-bilimlar/` ko'chirildi
 
-### Bloklangan: Lex.uz tarmoqdan yopiq
-Bu cloud muhitning network policy'si `lex.uz` ni bloklaydi (curl va WebFetch — 403 / EGRESS_BLOCKED).
-Shu sababli quyidagilar hali qilinmadi:
-- [ ] Lex.uz agreement (`https://lex.uz/agreement`) ni o'qish va avtomatik yuklash shartlarini tekshirish
-- [ ] `parse_doc` — metadata, sarlavha, hujjat ID, element ID/type, modda raqami, band matni, `COMMENT`
-- [ ] `load`
-- [ ] Parser unit testlari (real HTML fixture bilan)
+### Lex.uz agreement
+`https://lex.uz/agreement` — faqat **maxfiylik siyosati** (foydalanuvchi shaxsiy ma'lumotlari haqida).
+Avtomatik yuklash, nusxalash yoki qayta foydalanishni taqiqlovchi band **yo'q**; `robots.txt` yo'q (404).
+Shunga qaramay spec 3-bo'lim cheklovlari saqlanadi: 1,5 s delay, ketma-ket so'rov, cache, retry limit,
+aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i so'raladi.
 
-Yechim (biri kifoya):
-1. Muhit sozlamalarida Network access'ga `lex.uz` ni qo'shish, yoki
-2. `tests/fixtures/lexuz/README.md` da ko'rsatilgan sahifalarni brauzerda saqlab, repoga yuklash.
+### Real HTML'dan aniqlangan faktlar (parser shularga asoslangan)
+- Soliq kodeksi: 500 modda (1–483, `121¹` kabi qo'shimchalar bilan), 99 sarlavha, 14 jadval
+  (aksiz, foyda solig'i va boshqa stavka jadvallari), 2 264 izoh.
+- **Tarixiy versiya**: `?ONDATE=` faqat sahifadagi versiyalar ro'yxatidagi sana bilan ishlaydi
+  (`27.07.2026`, `12.12.2026 01`); ixtiyoriy sana → 404. Shuning uchun `pick_version` bor.
+  Spec'dagi `?ONDATE=DD.MM.YYYY` taxmini shu bilan aniqlashtirildi.
+- **Kelajakdagi tahrirlar**: Soliq kodeksida 12.12.2026 dan kuchga kiradigan versiya bor; tegishli
+  elementlar `future_version` bilan belgilanadi.
+- **Holat**: kartochka kelajakda kuchga kiradigan hujjatni ham "Действующий" deydi (VM-508, 24.12.2026) →
+  `resolve_status` kuchga kirish sanasini ham tekshiradi. Noma'lum qiymat → `noma'lum`.
+- Kartochka qiymatlari sessiyaga qarab ruscha yoki o'zbekcha keladi → client cookie saqlamaydi, ikkala til tanib olinadi.
+- Izohlar: CHANGES_ORIGINS / "LexUZ sharhi" → oldingi elementga; "Oldingi tahrirga qarang" → keyingi
+  elementga; "keyingi tahrir" havolasi → oldingi elementga (hammasi real hujjatda sanab tekshirilgan).
+- Matni hali e'lon qilinmagan hujjatlar bor (PF-206) → `text_available = False`.
+- `INDEXES_ON_REF` (tasniflagich indeksi) va Lex.uz'dagi 6 ta bo'sh "LexUZ sharhi" saqlanmaydi.
 
-### Qarorlar
-- `lexuz.py` mustaqil modul (app/ ga bog'liq emas), sinxron `httpx` bilan. Async kod uni `asyncio.to_thread` orqali chaqiradi.
-- Model ID'lari `.env.example` da: `claude-opus-5` (asosiy), `claude-haiku-4-5` (tezkor) — PHASE 4 da qayta tekshiriladi.
-- Migrations PHASE 1 ga qoldirildi (v3 tartibi bo'yicha).
+### Keyingi bosqich: PHASE 1 (tasdiqdan keyin)
+- Migrations (spec 5-bo'lim jadvallari; `elementlar` ga `kind`, `text_hash`, `future_version` qo'shish taklifi)
+- Test skeleton (database, search), README to'ldirish

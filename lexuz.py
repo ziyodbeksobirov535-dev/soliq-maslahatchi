@@ -1,11 +1,27 @@
-"""Lex.uz fetch client va havola quruvchi.
+"""Lex.uz fetch client, parser va havola quruvchi.
 
 Bu modul mustaqil (app/ ga bog'liq emas): sozlamalar konstruktor orqali beriladi.
 
-Holat (PHASE 0):
-- `fetch`, `doc_url`, `elem_link` — tayyor va testlangan.
-- `parse_doc`, `load` — real Lex.uz HTML namunasi olingach yoziladi.
-  HTML tuzilmasini taxmin qilib parser yozilmaydi (spec 36-bo'lim, 10-qoida).
+Asosiy funksiyalar:
+- `fetch` — ehtiyotkor yuklash (quyida).
+- `parse_doc` — hujjat sahifasini metadata + elementlarga ajratadi.
+- `parse_card` / `resolve_status` — "Asosiy rekvizitlar" kartochkasi va huquqiy holat.
+- `load` — hujjatni (kerak bo'lsa tarixiy versiyasini) yuklab, parse qiladi.
+- `doc_url`, `elem_link`, `card_url`, `pick_version` — havolalar va versiya tanlash.
+
+Parser real Lex.uz HTML'i asosida yozilgan (2026-09-26 holati, namunalar:
+`tests/fixtures/lexuz/`). Sahifa tuzilmasi:
+- `#divCont` ichida ketma-ket `div.lx_elem.<TUR>` elementlar; element ID va matn
+  ichki `div[id]` da (masalan `<div id="-4675087">...`).
+- Element turlari: ACT_TITLE, TEXT_HEADER_DEFAULT (qism/bo'lim/bob), CLAUSE_DEFAULT
+  (modda sarlavhasi), ACT_TEXT (band/qism matni), FOOTNOTE, NEW_EDITION, ACT_FORM, BY_DEFAULT.
+- Elementdan keyin keladigan `div.lx_no_select` bloklar: CHANGES_ORIGINS (o'zgartirish
+  manbasi), COMMENT (oldingi/keyingi tahrir havolasi yoki "LexUZ sharhi"),
+  INDEXES_ON_REF (tasniflagich indeksi — saqlanmaydi).
+- Tarixiy versiya: `?ONDATE=` faqat sahifadagi versiyalar ro'yxatidagi sanalar bilan
+  ishlaydi (masalan `27.07.2026` yoki `12.12.2026 01`); ixtiyoriy sana 404 qaytaradi.
+- Kartochka (`/actinfo/card1/<id>`) kelajakda kuchga kiradigan hujjatni ham
+  "Действующий" deb ko'rsatadi — shuning uchun holat kuchga kirish sanasi bilan birga baholanadi.
 
 Lex.uz'ni ortiqcha yuklamaslik uchun (spec 3-bo'lim): timeout, retry,
 exponential backoff, so'rovlar orasida kechikish, disk cache, ketma-ket
@@ -20,11 +36,13 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +50,10 @@ BASE_URL = "https://lex.uz"
 DEFAULT_USER_AGENT = "soliq-maslahatchi/0.1 (+https://github.com/ziyodbeksobirov535-dev/soliq-maslahatchi)"
 
 _ID_RE = re.compile(r"^-?\d+$")
+# Izoh bloklari (COMMENT) anchor ID'si: yangi hujjatlarda "edi-5464766", eskilarida "edi1575785".
+_ELEMENT_ID_RE = re.compile(r"^(?:-?\d+|edi-?\d+)$")
+_EDI_RE = re.compile(r"^edi(-?)(\d+)$")
+_VERSION_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}(?: \d{2})?$")
 _RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 
@@ -52,24 +74,36 @@ class LexUzEmptyResponse(LexUzError):
         self.url = url
 
 
-def _check_id(value: str, what: str) -> str:
+def _check_id(value: str, what: str, pattern: re.Pattern[str] = _ID_RE) -> str:
     value = str(value).strip()
-    if not _ID_RE.match(value):
+    if not pattern.match(value):
         raise ValueError(f"Noto'g'ri Lex.uz {what}: {value!r}")
     return value
 
 
-def doc_url(doc_id: str, on_date: date | None = None) -> str:
-    """Hujjat URL'i. `on_date` berilsa — o'sha sana holatidagi tarixiy versiya (?ONDATE=DD.MM.YYYY)."""
+def doc_url(doc_id: str, version: date | str | None = None) -> str:
+    """Hujjat URL'i. `version` — sahifadagi versiyalar ro'yxatidan sana (`?ONDATE=`).
+
+    Diqqat: Lex.uz faqat mavjud versiya sanasini qabul qiladi; ixtiyoriy sana uchun
+    avval `pick_version` bilan mos versiyani tanlang.
+    """
     url = f"{BASE_URL}/docs/{_check_id(doc_id, 'hujjat ID')}"
-    if on_date is not None:
-        url += f"?ONDATE={on_date:%d.%m.%Y}"
+    if version is not None:
+        token = f"{version:%d.%m.%Y}" if isinstance(version, date) else str(version).strip()
+        if not _VERSION_RE.match(token):
+            raise ValueError(f"Noto'g'ri versiya sanasi: {version!r}")
+        url += f"?ONDATE={token}"
     return url
 
 
 def elem_link(doc_id: str, element_id: str) -> str:
     """Element uchun canonical havola, masalan https://lex.uz/docs/-4674902#-7966265."""
-    return f"{doc_url(doc_id)}#{_check_id(element_id, 'element ID')}"
+    return f"{doc_url(doc_id)}#{_check_id(element_id, 'element ID', _ELEMENT_ID_RE)}"
+
+
+def card_url(doc_id: str) -> str:
+    """Hujjatning "Asosiy rekvizitlar" kartochkasi (holat, sanalar, raqam)."""
+    return f"{BASE_URL}/actinfo/card1/{_check_id(doc_id, 'hujjat ID')}"
 
 
 class LexUzClient:
@@ -179,6 +213,9 @@ class LexUzClient:
                 self._wait_for_slot()
                 started = self._clock()
                 response: httpx.Response | None = None
+                # Lex.uz javobi sessiya cookie'siga qarab o'zgaradi (masalan kartochka tili);
+                # har so'rov mustaqil bo'lishi uchun cookie saqlanmaydi.
+                self._http.cookies.clear()
                 try:
                     response = self._http.get(url, headers=self._headers)
                 except httpx.TransportError as exc:
@@ -217,11 +254,559 @@ def fetch(url: str, *, client: LexUzClient | None = None, use_cache: bool = True
         return tmp.fetch(url, use_cache=use_cache)
 
 
-def parse_doc(html: str):  # pragma: no cover - PHASE 0 davomida yoziladi
-    raise NotImplementedError(
-        "parse_doc real Lex.uz HTML namunasi bilan yoziladi (lex.uz hozir tarmoqdan bloklangan)"
+
+
+# --- parser ------------------------------------------------------------------
+
+STATUS_AMALDA = "amalda"
+STATUS_KUCHGA_KIRMAGAN = "kuchga_kirmagan"
+STATUS_KUCHINI_YOQOTGAN = "kuchini_yoqotgan"
+STATUS_NOMALUM = "noma'lum"
+
+# Kartochkadagi "Ҳужжат ҳолати" qiymatlari. Lex.uz sessiya holatiga qarab qiymatni
+# ruscha ("Действующий") yoki o'zbekcha ("Amalda") qaytaradi — ikkalasi real namunada kuzatilgan.
+# Ro'yxatda yo'q qiymat → noma'lum (taxmin qilinmaydi).
+_CARD_STATUS = {
+    "действующий": STATUS_AMALDA,
+    "amalda": STATUS_AMALDA,
+    "утративший силу": STATUS_KUCHINI_YOQOTGAN,
+}
+
+_SUPERSCRIPT = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+_DATE_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
+_TITLE_RE = re.compile(r"^(?:(?P<number>\S+)-сон\s+)?(?P<date>\d{2}\.\d{2}\.\d{4})\.\s*(?P<name>.+)$")
+# Modda sarlavhasi (faqat CLAUSE_DEFAULT uchun): "461-modda.", "121¹-modda.", "461-модда.",
+# "Статья 461.", shuningdek eski hujjatlarda so'zsiz "159¹. Ставки ..."
+_ARTICLE_RE = re.compile(
+    r"^\s*(?:(?P<num>\d+)(?P<sup>[⁰¹²³⁴⁵⁶⁷⁸⁹]*)\s*-\s*(?:modda|модда)\b"
+    r"|Статья\s+(?P<ru>\d+)(?P<rusup>[⁰¹²³⁴⁵⁶⁷⁸⁹]*)"
+    r"|(?P<bare>\d+)(?P<baresup>[⁰¹²³⁴⁵⁶⁷⁸⁹]*)\.\s)",
+    re.IGNORECASE,
+)
+# Sarlavha darajalari: qism > bo'lim > bob; boshqa sarlavhalar eng quyi daraja.
+_HEADER_LEVELS = (
+    (0, re.compile(r"\b(QISM|ҚИСМ|ЧАСТЬ)\b", re.IGNORECASE)),
+    (1, re.compile(r"\b(BOʻLIM|BO'LIM|BO‘LIM|БЎЛИМ|РАЗДЕЛ)\b", re.IGNORECASE)),
+    (2, re.compile(r"(-bob\b|-боб\b|^Глава\s)", re.IGNORECASE)),
+)
+_OTHER_HEADER_LEVEL = 3
+
+KIND_TITLE = "title"
+KIND_HEADER = "header"
+KIND_ARTICLE = "article"
+KIND_TEXT = "text"
+KIND_FOOTNOTE = "footnote"
+KIND_TABLE = "table"
+KIND_AMENDMENT = "amendment"  # CHANGES_ORIGINS
+KIND_EDITION_NOTE = "edition_note"  # COMMENT: oldingi/keyingi tahrir
+KIND_LEXUZ_COMMENT = "lexuz_comment"  # COMMENT: "LexUZ sharhi"
+KIND_OTHER = "other"
+
+_KIND_BY_CLASS = {
+    "ACT_TITLE": KIND_TITLE,
+    "TEXT_HEADER_DEFAULT": KIND_HEADER,
+    "CLAUSE_DEFAULT": KIND_ARTICLE,
+    "ACT_TEXT": KIND_TEXT,
+    "FOOTNOTE": KIND_FOOTNOTE,
+}
+
+
+@dataclass
+class Element:
+    element_id: str
+    doc_id: str
+    order_no: int
+    type: str  # Lex.uz CSS klassi, masalan CLAUSE_DEFAULT, COMMENT
+    kind: str  # normallashtirilgan tur (KIND_*)
+    text: str
+    link: str
+    parent_element_id: str | None = None
+    bob: str | None = None
+    modda: str | None = None
+    modda_raqami: str | None = None  # "461", "121-1" (121¹)
+    element_path: str = ""
+    amendment_note: str | None = None
+    refs: list[str] = field(default_factory=list)  # matndagi havolalar (absolyut)
+    future_version: str | None = None  # "12.12.2026 01" — kelajakdagi tahrir mavjud bo'lsa
+
+    @property
+    def text_hash(self) -> str:
+        return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
+
+
+@dataclass
+class Document:
+    doc_id: str
+    url: str
+    title: str
+    name: str
+    number: str | None
+    adoption_date: date | None
+    effective_date: date | None
+    header_label: str | None
+    version: str | None  # ochilgan sahifa versiyasi, masalan "06.08.2026"
+    versions: list[str]  # sahifadagi barcha versiyalar (yangi → eski)
+    elements: list[Element]
+
+    @property
+    def text_available(self) -> bool:
+        return any(e.kind in (KIND_ARTICLE, KIND_TEXT) for e in self.elements)
+
+    @property
+    def content_hash(self) -> str:
+        h = hashlib.sha256()
+        for e in self.elements:
+            h.update(f"{e.element_id}\x1f{e.text}\x1e".encode("utf-8"))
+        return h.hexdigest()
+
+    def articles(self) -> list[Element]:
+        return [e for e in self.elements if e.kind == KIND_ARTICLE]
+
+    def article(self, number: str) -> list[Element]:
+        """Modda sarlavhasi va unga tegishli barcha elementlar (tartib bo'yicha)."""
+        number = number.strip()
+        return [e for e in self.elements if e.modda_raqami == number]
+
+
+@dataclass
+class ActCard:
+    doc_id: str
+    name: str | None
+    doc_type: str | None
+    form: str | None
+    adoption_date: date | None
+    number: str | None
+    status_raw: str | None
+    effective_date: date | None
+    repeal_date: date | None
+    official_source_number: str | None
+
+
+def _parse_date(text: str | None) -> date | None:
+    if not text:
+        return None
+    m = _DATE_RE.search(text)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+
+
+def _version_date(token: str) -> date | None:
+    return _parse_date(token)
+
+
+def _clean(text: str) -> str:
+    lines = (re.sub(r"[ \t ​]+", " ", line).strip() for line in text.split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
+_BLOCK_TAGS = frozenset({"p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"})
+
+
+def _render(node: Tag, out: list[str]) -> None:
+    for child in node.children:
+        if isinstance(child, NavigableString):
+            if child.parent is not None and child.parent.name == "sup":
+                out.append(str(child).strip().translate(_SUPERSCRIPT))
+            else:
+                out.append(str(child))
+        elif not isinstance(child, Tag):
+            continue
+        elif child.name == "br":
+            out.append("\n")
+        elif child.name == "table":
+            out.append("\n" + _render_table(child) + "\n")
+        elif child.name in _BLOCK_TAGS:
+            out.append("\n")
+            _render(child, out)
+            out.append("\n")
+        else:
+            _render(child, out)
+
+
+def _render_table(table: Tag) -> str:
+    """Jadvalni qatorma-qator "katak | katak" ko'rinishida (stavka jadvallari uchun muhim)."""
+    lines = []
+    for tr in table.find_all("tr"):
+        if tr.find_parent("table") is not table:
+            continue
+        cells = [
+            _node_text(td).replace("\n", " ")
+            for td in tr.find_all(["td", "th"])
+            if td.find_parent("tr") is tr
+        ]
+        if any(cells):
+            lines.append(" | ".join(cells))
+    return "\n".join(lines)
+
+
+def _node_text(node: Tag) -> str:
+    """Element matni: <br> → yangi qator, <sup>1</sup> → ¹, jadval → "a | b" qatorlari."""
+    out: list[str] = []
+    _render(node, out)
+    return _clean("".join(out))
+
+
+def _article_number(heading: str) -> str | None:
+    m = _ARTICLE_RE.match(heading)
+    if not m:
+        return None
+    for num_group, sup_group in (("num", "sup"), ("ru", "rusup"), ("bare", "baresup")):
+        if m.group(num_group):
+            num, sup = m.group(num_group), m.group(sup_group)
+            break
+    if sup:
+        sup_digits = sup.translate(str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", "0123456789"))
+        return f"{num}-{sup_digits}"
+    return num
+
+
+def _header_level(text: str) -> int:
+    for level, pattern in _HEADER_LEVELS:
+        if pattern.search(text):
+            return level
+    return _OTHER_HEADER_LEVEL
+
+
+def _refs(node: Tag) -> list[str]:
+    return [urljoin(BASE_URL + "/", a["href"]) for a in node.find_all("a", href=True)]
+
+
+def _version_from_href(href: str) -> str | None:
+    values = parse_qs(urlsplit(href).query).get("ONDATE")
+    if not values:
+        return None
+    token = values[0].strip()
+    # Havolalarda vaqt qismi ham bo'ladi ("01.01.2020 00") — "00" asosiy versiya.
+    if token.endswith(" 00"):
+        token = token[:-3]
+    return token if _VERSION_RE.match(token) else None
+
+
+def _parse_versions(soup: BeautifulSoup) -> tuple[str | None, list[str]]:
+    selected = soup.select_one(".lx_date_selected")
+    current = _clean(selected.get_text(" ")) if selected else None
+    versions: list[str] = []
+    menu = soup.select_one(".lx_date_ddm")
+    items = menu.select(".lx_date_link, .lx_date_selected") if menu else []
+    for item in items:
+        if "lx_date_selected" in item.get("class", []):
+            token = current
+        else:
+            m = re.search(r"ONDATE=([^'\"]+)", item.get("onclick", ""))
+            token = m.group(1).strip() if m else None
+        if token and _VERSION_RE.match(token) and token not in versions:
+            versions.append(token)
+    return current, versions
+
+
+def _parse_header(soup: BeautifulSoup) -> tuple[str | None, date | None]:
+    label_el = soup.select_one(".docHeader__item-label")
+    label = _clean(label_el.get_text(" ")) if label_el else None
+    effective = None
+    for item in soup.select(".docHeader__item"):
+        item_label = item.select_one(".docHeader__item-label")
+        value = item.select_one(".docHeader__item-value")
+        if item_label and value and "Кучга кириш" in item_label.get_text():
+            effective = _parse_date(value.get_text(" "))
+            break
+    return label, effective
+
+
+def parse_doc(html: str, doc_id: str) -> Document:
+    """Lex.uz hujjat sahifasini (`/docs/<id>`) metadata va elementlarga ajratadi.
+
+    Matni hali e'lon qilinmagan hujjatlarda `#divCont` bo'lmaydi — bunda elementlar
+    bo'sh va `text_available` False bo'ladi. Sahifa umuman Lex.uz hujjati bo'lmasa
+    (sarlavha ham, kontent ham yo'q) LexUzError ko'tariladi.
+    """
+    doc_id = _check_id(doc_id, "hujjat ID")
+    if not html or not html.strip():
+        raise LexUzError(f"Bo'sh HTML: {doc_id}")
+    soup = BeautifulSoup(html, "lxml")
+
+    title_el = soup.find("title")
+    title = _clean(title_el.get_text(" ")) if title_el else ""
+    container = soup.select_one("#divCont")
+    header_label, effective_date = _parse_header(soup)
+    if not title and container is None and header_label is None:
+        raise LexUzError(f"Lex.uz hujjat sahifasi emas: {doc_id}")
+
+    m = _TITLE_RE.match(title)
+    name = m.group("name").strip() if m else title
+    number = m.group("number") if m else None
+    adoption_date = _parse_date(m.group("date")) if m else None
+    version, versions = _parse_versions(soup)
+
+    elements = _parse_elements(container, doc_id) if container is not None else []
+    return Document(
+        doc_id=doc_id,
+        url=doc_url(doc_id),
+        title=title,
+        name=name,
+        number=number,
+        adoption_date=adoption_date,
+        effective_date=effective_date,
+        header_label=header_label,
+        version=version,
+        versions=versions,
+        elements=elements,
     )
 
 
-def load(doc_id: str, on_date: date | None = None, *, client: LexUzClient | None = None):  # pragma: no cover
-    raise NotImplementedError("load parse_doc tayyor bo'lgach yoziladi")
+def _parse_elements(container: Tag, doc_id: str) -> list[Element]:
+    """Ikki bosqich: (1) asosiy elementlar va ierarxiya, (2) izohlarni egasiga biriktirish."""
+    mains: list[Element] = []
+    # Hujjat tartibidagi ketma-ketlik: ("main", indeks) yoki ("note", blok, oldingi main indeksi)
+    sequence: list[tuple] = []
+    headers: list[tuple[int, Element]] = []  # (daraja, sarlavha) steki
+    article: Element | None = None
+
+    def path(extra: Element | None = None) -> str:
+        names = [h.text for _, h in headers]
+        if extra is not None:
+            names.append(extra.text)
+        return " > ".join(names)
+
+    def current_bob() -> str | None:
+        for level, h in reversed(headers):
+            if level == 2:
+                return h.text
+        return None
+
+    for block in container.find_all("div", recursive=False):
+        classes = block.get("class", [])
+        inner = block.find("div", id=True, recursive=False)
+        if inner is None:
+            continue
+        if "lx_elem" not in classes:
+            if "CHANGES_ORIGINS" in classes or "COMMENT" in classes:
+                sequence.append(("note", block, inner, len(mains) - 1))
+            continue  # INDEXES_ON_REF — tasniflagich, saqlanmaydi
+
+        el_type = next((c for c in classes if c != "lx_elem"), "UNKNOWN")
+        text = _node_text(inner)
+        if not text:  # BY_DEFAULT, ACT_FORM kabi bo'sh ajratkichlar
+            continue
+        kind = KIND_TABLE if inner.find("table") is not None else _KIND_BY_CLASS.get(el_type, KIND_OTHER)
+        if kind in (KIND_HEADER, KIND_ARTICLE, KIND_TITLE):
+            text = text.replace("\n", " ")  # "I BOʻLIM.<br/>UMUMIY QOIDALAR" → bitta qator
+        el = Element(
+            element_id=inner["id"],
+            doc_id=doc_id,
+            order_no=0,
+            type=el_type,
+            kind=kind,
+            text=text,
+            link=elem_link(doc_id, inner["id"]),
+            refs=_refs(inner),
+        )
+        if kind == KIND_HEADER:
+            level = _header_level(text)
+            while headers and headers[-1][0] >= level:
+                headers.pop()
+            el.parent_element_id = headers[-1][1].element_id if headers else None
+            headers.append((level, el))
+            el.bob = current_bob()
+            el.element_path = path()
+            article = None
+        elif kind == KIND_ARTICLE:
+            el.parent_element_id = headers[-1][1].element_id if headers else None
+            el.bob = current_bob()
+            el.modda = text
+            el.modda_raqami = _article_number(text)
+            el.element_path = path(el)
+            article = el
+        else:
+            owner = article or (headers[-1][1] if headers else None)
+            el.parent_element_id = owner.element_id if owner else None
+            el.bob = current_bob()
+            if article is not None:
+                el.modda = article.modda
+                el.modda_raqami = article.modda_raqami
+            el.element_path = path(article)
+        sequence.append(("main", len(mains)))
+        mains.append(el)
+
+    elements: list[Element] = []
+    for item in sequence:
+        if item[0] == "main":
+            el = mains[item[1]]
+        else:
+            _, block, inner, prev_idx = item
+            el = _make_note(block, inner, doc_id, mains, prev_idx)
+            if el is None:
+                continue
+        el.order_no = len(elements) + 1
+        elements.append(el)
+    return elements
+
+
+def _note_owner(note_id: str, is_next_version: bool, mains: list[Element], prev_idx: int) -> Element | None:
+    """Izoh egasini aniqlaydi (Soliq kodeksidagi 2 264 ta izoh bo'yicha tekshirilgan):
+    - CHANGES_ORIGINS va "LexUZ sharhi" — o'zgargan fragment oxirida, oldingi elementga tegishli;
+    - "Oldingi tahrirga qarang" (edi-N) — o'zgargan fragment boshida, keyingi elementga tegishli;
+    - "... kuchga kiradigan o'zgarishlarga qarang" (lx_next_ver) — oldingi elementga tegishli.
+    `edi-N` ID'si `-N` (yoki `N`) elementga to'g'ridan-to'g'ri mos kelsa, o'sha element tanlanadi.
+    """
+    prev_el = mains[prev_idx] if prev_idx >= 0 else None
+    next_el = mains[prev_idx + 1] if prev_idx + 1 < len(mains) else None
+    m = _EDI_RE.match(note_id)
+    if m is None:
+        return prev_el
+    targets = {m.group(2), "-" + m.group(2)}
+    for candidate in (next_el, prev_el):
+        if candidate is not None and candidate.element_id in targets:
+            return candidate
+    if is_next_version:
+        return prev_el or next_el
+    return next_el or prev_el
+
+
+def _make_note(block: Tag, inner: Tag, doc_id: str, mains: list[Element], prev_idx: int) -> Element | None:
+    classes = block.get("class", [])
+    if "CHANGES_ORIGINS" in classes:
+        kind, el_type = KIND_AMENDMENT, "CHANGES_ORIGINS"
+    else:
+        is_lexuz = block.select_one(".COMMENTLEXUZ") is not None
+        kind, el_type = (KIND_LEXUZ_COMMENT if is_lexuz else KIND_EDITION_NOTE), "COMMENT"
+    text = _node_text(inner)
+    next_ver = inner.select_one("a.lx_next_ver")
+    owner = _note_owner(inner["id"], next_ver is not None, mains, prev_idx)
+    if not text or owner is None:
+        return None
+    note = Element(
+        element_id=inner["id"],
+        doc_id=doc_id,
+        order_no=0,
+        type=el_type,
+        kind=kind,
+        text=text,
+        link=elem_link(doc_id, inner["id"]),
+        parent_element_id=owner.element_id,
+        bob=owner.bob,
+        modda=owner.modda,
+        modda_raqami=owner.modda_raqami,
+        element_path=owner.element_path,
+        refs=_refs(inner),
+    )
+    if next_ver is not None:
+        note.future_version = _version_from_href(next_ver["href"])
+        owner.future_version = note.future_version
+    if kind in (KIND_AMENDMENT, KIND_EDITION_NOTE):
+        owner.amendment_note = f"{owner.amendment_note}\n{text}" if owner.amendment_note else text
+    return note
+
+
+def parse_card(html: str, doc_id: str) -> ActCard:
+    """`/actinfo/card1/<id>` kartochkasini o'qiydi."""
+    doc_id = _check_id(doc_id, "hujjat ID")
+    if not html or not html.strip():
+        raise LexUzError(f"Bo'sh kartochka: {doc_id}")
+    soup = BeautifulSoup(html, "lxml")
+    fields: dict[str, str] = {}
+    for label in soup.select("td.lbl"):
+        value = label.find_next_sibling("td")
+        key = _clean(label.get_text(" "))
+        if key and value is not None and key not in fields:
+            fields[key] = _clean(value.get_text(" "))
+    if not fields:
+        raise LexUzError(f"Lex.uz kartochkasi emas: {doc_id}")
+
+    adoption_date = number = None
+    organ_row = soup.select_one("table.otmTab tr:has(td.otmVal)")
+    if organ_row is not None:
+        # Ustunlar: t/r, organ, lavozim, imzolagan shaxs, qabul sanasi, raqam, joy
+        cells = [_clean(td.get_text(" ")) for td in organ_row.select("td.otmVal")]
+        for i, cell in enumerate(cells):
+            if _DATE_RE.fullmatch(cell):
+                adoption_date = _parse_date(cell)
+                number = cells[i + 1] if i + 1 < len(cells) and cells[i + 1] else None
+                break
+
+    def get(prefix: str) -> str | None:
+        for key, value in fields.items():
+            if key.startswith(prefix):
+                return value or None
+        return None
+
+    name_el = None
+    for label in soup.select("td.lbl"):
+        if _clean(label.get_text(" ")) == "Ҳужжат номи":
+            name_el = label.find_next_sibling("td")
+            break
+    return ActCard(
+        doc_id=doc_id,
+        name=_clean(name_el.get_text(" ")) if name_el else get("Ҳужжат номи"),
+        doc_type=get("Ҳужжат тури"),
+        form=get("Ҳужжат шакли"),
+        adoption_date=adoption_date,
+        number=number,
+        status_raw=get("Ҳужжат ҳолати"),
+        effective_date=_parse_date(get("Кучга кириш санаси")),
+        repeal_date=_parse_date(get("Кучини йўқотган санаси")),
+        official_source_number=get("Расмий манба нашри"),
+    )
+
+
+def resolve_status(card: ActCard, today: date) -> str:
+    """Hujjatning huquqiy holati.
+
+    Qoidalar (spec 5, 16-bo'lim):
+    - kuchini yo'qotgan sana o'tgan yoki kartochka "Утративший силу" → kuchini_yoqotgan;
+    - kuchga kirish sanasi kelajakda → kuchga_kirmagan (kartochka bunday hujjatni ham
+      "Действующий" deb ko'rsatadi);
+    - kartochka "Действующий" va kuchga kirish sanasi o'tgan → amalda;
+    - qolgan barcha holatda → noma'lum (faqat sanaga qarab "amalda" deyilmaydi).
+    """
+    official = _CARD_STATUS.get((card.status_raw or "").strip().lower())
+    if official == STATUS_KUCHINI_YOQOTGAN or (card.repeal_date and card.repeal_date <= today):
+        return STATUS_KUCHINI_YOQOTGAN
+    if card.effective_date and card.effective_date > today:
+        return STATUS_KUCHGA_KIRMAGAN
+    if official == STATUS_AMALDA and card.effective_date and card.effective_date <= today:
+        return STATUS_AMALDA
+    return STATUS_NOMALUM
+
+
+def pick_version(versions: list[str], on_date: date) -> str | None:
+    """`on_date` holatidagi amaldagi versiya: sanasi `on_date` dan kech bo'lmagan eng so'nggisi."""
+    best: tuple[date, str] | None = None
+    for token in versions:
+        d = _version_date(token)
+        if d is None or d > on_date:
+            continue
+        if best is None or (d, token) > best:
+            best = (d, token)
+    return best[1] if best else None
+
+
+def load(doc_id: str, on_date: date | None = None, *, client: LexUzClient) -> Document:
+    """Hujjatni yuklab parse qiladi. `on_date` berilsa — o'sha sana holatidagi versiya.
+
+    Tarixiy versiya uchun avval joriy sahifadan versiyalar ro'yxati olinadi, so'ng
+    `pick_version` bilan mos versiya ochiladi. Mos versiya bo'lmasa LexUzError.
+    """
+    current = parse_doc(client.fetch(doc_url(doc_id)), doc_id)
+    if on_date is None:
+        return current
+    version = pick_version(current.versions, on_date)
+    if version is None:
+        raise LexUzError(f"{doc_id}: {on_date:%d.%m.%Y} holatiga versiya topilmadi")
+    if version == current.version:
+        return current
+    return parse_doc(client.fetch(doc_url(doc_id, version)), doc_id)
+
+
+def load_card(doc_id: str, *, client: LexUzClient) -> ActCard:
+    return parse_card(client.fetch(card_url(doc_id)), doc_id)
+
+
+def today_tashkent() -> date:
+    """Holatni baholash uchun Asia/Tashkent bo'yicha bugungi sana."""
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("Asia/Tashkent")).date()

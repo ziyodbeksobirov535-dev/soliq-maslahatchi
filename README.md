@@ -22,12 +22,28 @@ python main.py
 
 | Yo'l | Vazifa |
 |---|---|
-| `lexuz.py` | Lex.uz fetch client (timeout, retry, backoff, delay, cache) va havolalar |
+| `lexuz.py` | Lex.uz fetch client (timeout, retry, backoff, delay, cache), parser, holat, versiyalar |
 | `app/config.py` | `.env` dan sozlamalar (model ID'lari kodda yo'q) |
 | `app/utils/logging.py` | request_id (UUID) bilan logging, secret'larni yashirish |
 | `app/{bot,collector,retrieval,ai,database,services,scheduler,security}/` | keyingi bosqichlar |
 | `skill-bilimlar/` | ichki bilimlar bazasi (Lex.uz o'rnini bosmaydi) |
 | `tests/` | pytest testlari; `tests/fixtures/lexuz/` — real Lex.uz HTML namunalari |
+
+## Lex.uz parser — qisqa misol
+
+```python
+from datetime import date
+import lexuz
+
+with lexuz.LexUzClient(cache_dir=".cache/lexuz") as client:
+    doc = lexuz.load("-4674902", client=client)                    # joriy versiya
+    old = lexuz.load("-4674902", date(2025, 1, 15), client=client) # o'sha sana holatiga
+    card = lexuz.load_card("-4674902", client=client)
+    status = lexuz.resolve_status(card, lexuz.today_tashkent())     # "amalda"
+
+for el in doc.article("461"):
+    print(el.kind, el.link, el.text[:80])
+```
 
 ## Xavfsizlik
 

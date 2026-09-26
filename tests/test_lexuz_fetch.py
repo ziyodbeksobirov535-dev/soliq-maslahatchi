@@ -80,6 +80,15 @@ def test_fetch_success():
     assert "soliq-maslahatchi" in calls[0].headers["User-Agent"]
 
 
+def test_cookies_are_not_sent_between_requests():
+    client, calls, _ = make_client(
+        [httpx.Response(200, text="<p>1</p>", headers={"Set-Cookie": "ui=oz; Path=/"}), html()]
+    )
+    client.fetch(URL, use_cache=False)
+    client.fetch(URL, use_cache=False)
+    assert "cookie" not in {k.lower() for k in calls[1].headers}
+
+
 def test_rejects_non_lexuz_host():
     client, calls, _ = make_client([])
     with pytest.raises(ValueError):
