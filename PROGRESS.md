@@ -1,43 +1,34 @@
 # PROGRESS
 
-## 0-bosqich — Repository tahlili (2026-09-26)
+Spec: `docs/MASTER_SPEC.md` (v3).
 
-### Nima bor
-- Repository **butunlay bo'sh** edi (commit yo'q, remote'da ham branch yo'q).
-- Qo'shildi: `docs/MASTER_SPEC.md` (spec v2), `CLAUDE.md`, shu fayl.
+## PHASE 0 — Repository audit va Lex.uz parser (davom etmoqda)
 
-### Spec kutgan, lekin repoda YO'Q fayllar
-| Fayl | Holat | Nima qilish kerak |
-|---|---|---|
-| `lexuz.py` | Hech qayerda topilmadi | **Foydalanuvchi yuklashi shart.** Spec uni "test qilingan, qayta yozma" deydi — noldan yozish spec'ga zid. |
-| `BOT-SYSTEM-PROMPT.md` | Topilmadi | Foydalanuvchi yuklaydi (ichidagi `KERAK:` / `ISHLATILDI:` protokollari saqlanadi). |
-| `skill-bilimlar/` | Repoda yo'q, lekin foydalanuvchining `soliq-maslahatchi` Claude skill'ida bor | Tasdiqlansa, skill'dan ko'chiriladi (pastga qarang). |
-| `requirements.txt`, `.env.example`, migrations, testlar | Yo'q | PHASE 1 da yaratiladi. |
+### Bajarildi
+- [x] Repository tuzilmasi (`app/` modullari, `tests/`, `migrations/`, `skill-bilimlar/`)
+- [x] Python 3.11+ setup: `requirements.txt`, `requirements-dev.txt`, `pyproject.toml` (pytest)
+- [x] `.env.example`, `.gitignore`
+- [x] Config (`app/config.py`) va logging (`app/utils/logging.py`: request_id, secret redaction)
+- [x] `lexuz.py` fetch client: timeout, retry (408/425/429/5xx, tarmoq xatolari), exponential backoff,
+      `Retry-After`, so'rovlar orasida delay, disk cache (TTL), ketma-ket so'rovlar, faqat lex.uz host
+- [x] `doc_url` (`?ONDATE=DD.MM.YYYY` bilan) va `elem_link` (`https://lex.uz/docs/<doc>#<elem>`)
+- [x] Testlar: 29 ta, hammasi o'tadi (fetch/retry/cache/HTTP error/bo'sh javob, config, logging)
+- [x] README skeleton
+- [x] `skill-bilimlar/` — foydalanuvchi skill'idan ko'chirildi
 
-### `soliq-maslahatchi` skill'ida topilgan bilimlar (import uchun nomzod)
-- `bilimlar-bazasi.md`, `norezident-tolov-algoritmi.md`, `bitim-tarkibi-solishtirish.md`,
-  `imtiyoz-sorovnomasi.md`, `hisobot-muddatlari-kalendari.md`, `jarima-malumotnomasi.md` — spec 19-bo'limidagi ro'yxat bilan to'liq mos.
-- `kodeks-toliq/soliq-imtiyozlari-FAOL.csv` (553 qator), `soliq-imtiyozlari-royxati.csv` (959 qator) — kirill yozuvida.
-- Qo'shimcha: `kodeks-toliq/*.txt` — Soliq kodeksining to'liq matni (2026-07-02 holatiga, PDF'dan olingan, ~2.2 MB),
-  `kodeks-tuzilishi.md`, `maxsus-qism-indeksi.md`, `mijozlar-sohalari.md`, `yangiliklar-manbalari.md`.
-- Muhim: `kodeks-toliq/*.txt` da Lex.uz **element ID'lari yo'q** (PDF matni). Shuning uchun u `elementlar` jadvali uchun
-  asosiy manba bo'la olmaydi — faqat parser natijasini solishtirish/fallback uchun. Asosiy manba `lexuz.py` orqali Lex.uz.
-- Ma'lum fakt: Soliq kodeksi Lex.uz ID = `-4674902` (uz, lotin), rus versiyasi `4674893` — PHASE 2 da real fetch bilan qayta tasdiqlanadi.
+### Bloklangan: Lex.uz tarmoqdan yopiq
+Bu cloud muhitning network policy'si `lex.uz` ni bloklaydi (curl va WebFetch — 403 / EGRESS_BLOCKED).
+Shu sababli quyidagilar hali qilinmadi:
+- [ ] Lex.uz agreement (`https://lex.uz/agreement`) ni o'qish va avtomatik yuklash shartlarini tekshirish
+- [ ] `parse_doc` — metadata, sarlavha, hujjat ID, element ID/type, modda raqami, band matni, `COMMENT`
+- [ ] `load`
+- [ ] Parser unit testlari (real HTML fixture bilan)
 
-### Nima ishlaydi
-- Hozircha hech narsa (kod yo'q).
+Yechim (biri kifoya):
+1. Muhit sozlamalarida Network access'ga `lex.uz` ni qo'shish, yoki
+2. `tests/fixtures/lexuz/README.md` da ko'rsatilgan sahifalarni brauzerda saqlab, repoga yuklash.
 
-### PHASE 1 uchun aniq o'zgarishlar (tasdiqdan keyin)
-1. Spec 25-bo'limidagi `app/` tuzilmasi (bo'sh modullar + `__init__.py`).
-2. `.env.example` (spec 21-bo'lim), `.gitignore`, `requirements.txt` (aiogram 3.x, asyncpg, anthropic, APScheduler, bs4, lxml, pydantic-settings, pytest).
-3. `app/config.py` — `.env` dan typed config, model ID hard-code yo'q.
-4. `app/utils/logging.py` — request_id (UUID) bilan structured logging, secret/PII filtrlash.
-5. `migrations/001_init.sql` — spec 5-bo'limidagi barcha jadvallar, UNIQUE constraintlar, `pg_trgm`, `tsvector` (`simple`), status CHECK'lar.
-6. `README.md`, `main.py` (skeleton), `tests/` skeleton (config, migration SQL sintaksisi).
-7. PHASE 1 tugagach STOP.
-
-### Foydalanuvchidan kerak
-- [ ] `lexuz.py` faylini yuklash
-- [ ] `BOT-SYSTEM-PROMPT.md` faylini yuklash
-- [ ] `skill-bilimlar/` ni skill'dan ko'chirishga ruxsat (yoki yangi versiyasini yuklash)
-- [ ] PHASE 1 ni boshlashga tasdiq
+### Qarorlar
+- `lexuz.py` mustaqil modul (app/ ga bog'liq emas), sinxron `httpx` bilan. Async kod uni `asyncio.to_thread` orqali chaqiradi.
+- Model ID'lari `.env.example` da: `claude-opus-5` (asosiy), `claude-haiku-4-5` (tezkor) — PHASE 4 da qayta tekshiriladi.
+- Migrations PHASE 1 ga qoldirildi (v3 tartibi bo'yicha).

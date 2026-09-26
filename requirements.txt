@@ -1,0 +1,11 @@
+# PHASE 0
+httpx>=0.28,<1
+beautifulsoup4>=4.15,<5
+lxml>=6.1,<7
+pydantic-settings>=2.15,<3
+
+# Keyingi bosqichlar (spec 20-bo'lim)
+aiogram>=3.31,<4
+asyncpg>=0.31,<1
+anthropic>=1.8,<2
+APScheduler>=3.11,<4

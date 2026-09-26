@@ -1045,6 +1045,53 @@ Quyidagilar ham to'g'ri bo'lishi kerak:
 
 # 30. DEVELOPMENT BOSQICHLARI
 
+## PHASE 0 — REPOSITORY AUDIT VA LEX.UZ PARSER
+
+Bu loyiha noldan boshlanayotganini hisobga ol.
+
+Birinchi bosqich:
+
+- repository structure yaratish
+- Python 3.11+ setup
+- `lexuz.py` yaratish
+- Lex.uz agreement tekshirish
+- Lex.uz fetch client
+- parser
+- element/link extraction
+- timeout/retry/backoff
+- basic cache
+- parser unit tests
+- `.env.example`
+- `.gitignore`
+- requirements
+- README skeleton
+- logging/config skeleton
+
+`lexuz.py` real Lex.uz HTML asosida ishlashi kerak.
+
+Kamida quyidagilarni test qil:
+
+- document metadata
+- document title
+- document ID
+- element ID
+- element type
+- article number
+- clause text
+- `COMMENT`
+- canonical element URL
+- full document parsing
+- malformed/empty response
+- HTTP error
+
+**Bu bosqichda hali Telegram bot, Claude API yoki katta database retrieval qurilmasin.**
+
+Tugatgach STOP.
+
+User approval kut.
+
+---
+
 ## PHASE 1
 
 Faqat:
