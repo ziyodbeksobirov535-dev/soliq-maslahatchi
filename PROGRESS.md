@@ -271,7 +271,20 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
       tushgach boshlanadi.
 
 ### Keyingi qadam
-- [ ] "yuk tashuvchi" ↔ "yuk tashuvlarini" — so'z o'zagi mos kelmaydi (`query.stem`), qaror topilmadi (8 dan 1).
+- [x] "yuk tashuvchi" — so'z o'zagi (2026-09-27, MacBook). Tekshiruvda aniqlandi: "tashuvchi" va "tashuvlarini"
+      allaqachon bitta o'zakka (`tashuv`) tushardi; haqiqiy sabab — Lex.uz matnida asosan "yuk tashish" (Supabase:
+      18 marta, "tashuvchi" 7), `stem` esa `tashi`/`tashuv`/`tash` ga ajratadi. Tuzatildi (`app/retrieval/query.py`):
+      - `-chi` + kelishik ("tashuvchining", "tashuvchiga") endi `tashuv`, avval `tashuvch` edi;
+      - `stem_variants`: ot → fe'l juft o'zagi (-uv → -ish, -ov → -ash: tashuvchi → tashi, to'lov → to'lash);
+        qidiruvda bitta OR guruhi `(tashuv:* | tashi:*)` — bitta so'z sanaladi, qamrov o'zgarmaydi.
+      - Teskari yo'nalish (fe'l → ot) sinab ko'rildi va olib tashlandi: "foydalanish" → "foydalanuvchi",
+        "topshirish" → "topshiruvchi" spec savollarida natijani yomonlashtirdi. "tash:*" ishlatilmaydi (tashqi, tashkil).
+      - Supabase'da eski/yangi reja solishtirildi: spec 10 savoldan faqat 2 tasining rejasi o'zgaradi; top-1,
+        asosiy top-3, top-6 ko'rsatkichlari o'zgarmadi; norezident savolida top-6 da kutilgan moddalar 4 → 5.
+        "Yuk tashuvchi uchun imtiyozlar" → Fuqarolik kodeksi tashish bobi (709–724), avval aralash natija.
+      - Eski sessiyadagi "8 qaror" savollari repoda saqlanmagan — ular bo'yicha qayta o'lchanmadi (qarorlar
+        Supabase'da hali yo'q). Bazasiz testlar: `test_stem`, `test_stem_variants`, OR guruh; jami 180 passed.
+        DB'li `test_search` (sk_db) kutilgan qiymatlari lokal Postgres bilan qayta tekshirilishi kerak.
 - [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
 
 ### Test qilinishi kerak (oxirida)
