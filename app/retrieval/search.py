@@ -74,12 +74,13 @@ async def search_articles(
     if not plan.ts_terms:
         return []
     rows = await conn.fetch(
-        "SELECT * FROM search_articles($1::text[], $2, $3::text[], $4::text[], $5)",
+        "SELECT * FROM search_articles($1::text[], $2, $3::text[], $4::text[], $5, 300, $6::float8[])",
         plan.ts_terms,
         plan.trigram_text or None,
         plan.lex_ids,
         list(statuses),
         limit,
+        plan.ts_weights,
     )
     hits = []
     for r in rows:

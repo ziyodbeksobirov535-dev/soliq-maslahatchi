@@ -54,14 +54,16 @@ SUFFIXES = (
     "chilar", "chi", "lik", "i",
 )
 MIN_STEM = 4
+BIGRAM_WEIGHT = 0.6
+# Soliq botida deyarli har savol va har bandda uchraydigan o'zaklar — ular bilan ibora tuzilmaydi
+# ("soliq majburiyati" kabi umumiy iboralar noto'g'ri moddalarni yuqoriga chiqaradi).
+DOMAIN_COMMON = frozenset({"soli"})
 
 # Sinonimlar: kalit (normallashtirilgan so'z yoki o'zak) → qo'shimcha iboralar (har biri AND guruh).
 SYNONYMS: dict[str, tuple[str, ...]] = {
     "qqs": ("qoshilgan qiymat soligi",),
     "jshds": ("jismoniy shaxslardan olinadigan daromad soligi",),
     "aylanma": ("aylanmadan olinadigan soliq",),
-    "import": ("olib kiriladigan", "olib kirish"),
-    "eksport": ("olib chiqiladigan", "olib chiqish"),
     "jarima": ("moliyaviy sanksiya", "penya"),
     "topshir": ("taqdim etish",),
     "topshirish": ("taqdim etish",),
@@ -120,6 +122,7 @@ class QueryPlan:
     question: str
     normalized: str
     terms: list[str] = field(default_factory=list)  # o'zaklar (stop-so'zlarsiz)
+    bigrams: list[tuple[str, str]] = field(default_factory=list)  # yonma-yon so'zlar: "mehnat shartnoma"
     phrases: list[list[str]] = field(default_factory=list)  # sinonim iboralari (o'zaklar)
     article_number: str | None = None
     lex_ids: list[str] | None = None
@@ -132,8 +135,18 @@ class QueryPlan:
     def ts_terms(self) -> list[str]:
         """search_articles() uchun bo'laklar: har bir o'zak prefiks, sinonim iborasi AND-guruh."""
         parts = [f"{t}:*" for t in self.terms]
+        parts += [f"({a}:* <-> {b}:*)" for a, b in self.bigrams]
         parts += ["(" + " & ".join(f"{t}:*" for t in phrase) + ")" for phrase in self.phrases]
         return list(dict.fromkeys(parts))
+
+    @property
+    def ts_weights(self) -> list[float]:
+        """ts_terms bilan bir xil tartibda: iboralar (bigram) pastroq vazn oladi — umumiy iboralar
+        ("soliq majburiyati") kam uchragani uchun IDF'i baland, lekin mazmunan asosiy so'zdan kuchli emas."""
+        weights = {f"{t}:*": 1.0 for t in self.terms}
+        weights.update({f"({a}:* <-> {b}:*)": BIGRAM_WEIGHT for a, b in self.bigrams})
+        weights.update({"(" + " & ".join(f"{t}:*" for t in p) + ")": 1.0 for p in self.phrases})
+        return [weights.get(part, 1.0) for part in self.ts_terms]
 
     @property
     def tsquery(self) -> str | None:
@@ -213,6 +226,17 @@ def analyze(question: str, today: date) -> QueryPlan:
                 stems = [stem(p) for p in phrase.split()]
                 if stems not in plan.phrases:
                     plan.phrases.append(stems)
+
+    # Iboralar: asl matnda yonma-yon turgan ikki mazmunli so'z (orada stop-so'z bo'lmasa).
+    kept = set(meaningful)
+    for a, b in zip(words, words[1:]):
+        if a in kept and b in kept:
+            def key(w: str) -> str:
+                return next((x for x in ABBREVIATIONS if w.startswith(x) and len(w) - len(x) <= 4), None) or stem(w)
+
+            pair = (key(a), key(b))
+            if pair[0] != pair[1] and pair not in plan.bigrams and not (set(pair) & DOMAIN_COMMON):
+                plan.bigrams.append(pair)
 
     has_demonstrative = any(w in DEMONSTRATIVES for w in words)
     if plan.article_number is None:
