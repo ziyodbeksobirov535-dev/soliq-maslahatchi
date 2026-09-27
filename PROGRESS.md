@@ -38,7 +38,7 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
 - Matni hali e'lon qilinmagan hujjatlar bor (PF-206) → `text_available = False`.
 - `INDEXES_ON_REF` (tasniflagich indeksi) va Lex.uz'dagi 6 ta bo'sh "LexUZ sharhi" saqlanmaydi.
 
-## PHASE 1 — Structure, config, logging, migrations ✅ (user tasdig'ini kutmoqda)
+## PHASE 1 — Structure, config, logging, migrations ✅ (tasdiqlandi)
 
 ### Bajarildi
 - [x] Project structure, `.env.example`, config, logging (PHASE 0 da tayyor bo'lgan)
@@ -64,7 +64,40 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
 | `ozgarishlar`: `UNIQUE NULLS NOT DISTINCT` + change_type/hash CHECK | collector qayta ishga tushsa dublikat yo'q |
 | barcha jadvallarda RLS | Supabase anon API orqali ma'lumot sizib chiqmasligi |
 
-### Keyingi bosqich: PHASE 2 (tasdiqdan keyin)
-- Soliq kodeksini (`-4674902`) Lex.uz'dan yuklab, bazaga import qilish (hujjat + kartochka holati + elementlar)
-- `/modda 461` uchun to'g'ridan-to'g'ri qidiruv, link testlari
-- Real Supabase ulanishi kerak bo'ladi (`SUPABASE_DB_URL`)
+## PHASE 2 — Soliq kodeksi importi, /modda, havolalar (davom etmoqda)
+
+### Supabase
+- Loyiha: `soliq-maslahatchi`, ref `lxhpaappvrzxxqzafnct`, mintaqa eu-central-1 (Frankfurt), free tarif, PostgreSQL 17.
+- URL: `https://lxhpaappvrzxxqzafnct.supabase.co`
+- Migration'lar qo'llangan: `001_init`, `002_hardening`, `003_import_rpc` (`schema_migrations` da checksum bilan).
+- Security advisor: faqat `rls_enabled_no_policy` (INFO) — ataylab: public API yopiq, backend RLS'ni chetlab o'tadi.
+
+### Bajarildi
+- [x] `002_hardening` — pg_trgm `extensions` sxemasiga, trigger funksiyasi search_path (advisor WARN'lari yo'qoldi)
+- [x] `003_import_rpc` — `import_staging` + `finish_import()`: import mantiqi bazada, bitta tranzaksiya
+- [x] `app/collector/importer.py` — ikki yo'l: to'g'ridan-to'g'ri Postgres va Supabase REST (bo'laklab, xatoda tozalash)
+- [x] `app/collector/initial_load.py` — sukut bo'yicha quruq rejim (metadata ko'rsatadi), `--yes` bilan import
+- [x] `app/retrieval/articles.py` — `/modda N` (N, N-1, N¹ formatlari), topilmasa None
+- [x] `app/collector/core_documents.py` — asosiy hujjatlar ID'lari Lex.uz kartochkasi orqali tasdiqlangan
+- [x] Testlar: 128 passed (DB bilan), jumladan butun Soliq kodeksi importi, qayta import no-op, o'zgarish jurnali,
+      461-modda bazadan parser natijasi bilan bir xil, barcha 8 137 havola canonical va real anchor'ga ishora qiladi
+- [x] Quruq rejim jonli Lex.uz'da: Soliq kodeksi — 8 137 element, 500 modda, holat `amalda`
+
+### Bloklangan
+- [ ] Soliq kodeksini Supabase'ga haqiqiy import qilish. Cloud dev muhit raw TCP (Postgres 5432/6543) ochmaydi,
+      shuning uchun REST yo'li ishlatiladi. Buning uchun muhit o'zgaruvchilari kerak:
+      `SUPABASE_URL=https://lxhpaappvrzxxqzafnct.supabase.co` va `SUPABASE_SERVICE_ROLE_KEY`
+      (Supabase → Project Settings → API Keys → service_role / secret). Kalit chatga yozilmaydi.
+
+### Asosiy hujjatlar (Lex.uz kartochkasi bilan tekshirilgan, 2026-09-27)
+| Hujjat | Lex.uz ID | Kartochka holati | Import |
+|---|---|---|---|
+| Soliq kodeksi | -4674902 | Действующий | ruxsat berilgan |
+| Mehnat kodeksi (2022) | -6257288 | Действующий | tasdiq kutilmoqda |
+| Fuqarolik kodeksi, 1-qism | -111189 | Действующий | tasdiq kutilmoqda |
+| Fuqarolik kodeksi, 2-qism | -180552 | Действующий | tasdiq kutilmoqda |
+| Bojxona kodeksi | -2876354 | Действующий | tasdiq kutilmoqda |
+| Buxgalteriya hisobi to'g'risida (O'RQ-404 yangi tahrir) | -2931253 | Действующий | tasdiq kutilmoqda |
+
+Eslatmalar: 1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan. 1996-yilgi buxgalteriya qonuni
+(-90762) kartochkada "Не действующий" — bu qiymat parserga noma'lum, shuning uchun `noma'lum` (taxmin qilinmaydi).
