@@ -64,7 +64,7 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
 | `ozgarishlar`: `UNIQUE NULLS NOT DISTINCT` + change_type/hash CHECK | collector qayta ishga tushsa dublikat yo'q |
 | barcha jadvallarda RLS | Supabase anon API orqali ma'lumot sizib chiqmasligi |
 
-## PHASE 2 — Soliq kodeksi importi, /modda, havolalar ✅ (user tasdig'ini kutmoqda)
+## PHASE 2 — Soliq kodeksi importi, /modda, havolalar ✅ (tasdiqlandi)
 
 ### Supabase
 - Loyiha: `soliq-maslahatchi`, ref `lxhpaappvrzxxqzafnct`, mintaqa eu-central-1 (Frankfurt), free tarif, PostgreSQL 17.
@@ -111,3 +111,22 @@ Jami Supabase'da: 6 hujjat, 24 254 element, 2 741 modda, noto'g'ri havola 0. Imp
 
 Eslatmalar: 1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan. 1996-yilgi buxgalteriya qonuni
 (-90762) kartochkada "Не действующий" — bu qiymat parserga noma'lum, shuning uchun `noma'lum` (taxmin qilinmaydi).
+
+## PHASE 3 — PostgreSQL search, retrieval, 10 savol ✅ (user tasdig'ini kutmoqda)
+
+### Bajarildi
+- [x] `migrations/004_search.sql` — `norm_uz()` (o'zbek tutuq belgilari: "toʻlov" = "to'lov"), search_vector
+      qayta qurildi (A sarlavha, B matn, C bob yo'li), trigram indeks, `search_articles()`
+- [x] `migrations/005_search_weights.sql` — IDF × ts_rank, modda bo'yicha qamrov, bo'laklar vazni
+- [x] `app/retrieval/query.py` — stop-so'zlar, o'zak (qo'shimchalarni kesish), sinonimlar (QQS, JSHDS, aylanma,
+      jarima, topshirish), iboralar, modda raqami, hujjat ishorasi, tarixiy sana, aniqlashtirish kerakligi
+- [x] `app/retrieval/search.py` — aniq modda → to'g'ridan-to'g'ri; noaniq → `needs_clarification`;
+      tarixiy → joriy matn berilmaydi (`historical_unavailable`); faqat `amalda`; qamrov chegarasi 50%
+- [x] `app/retrieval/evaluation.py` — 10 savol, kutilgan moddalar qidiruvdan mustaqil belgilangan
+- [x] Testlar: 171 passed (43 tasi qidiruvga oid, lokal Postgres'da)
+- [x] Hisobot: `docs/retrieval_report.md` — Supabase'da 6 hujjat bo'yicha
+
+### Natija (Supabase, 6 hujjat)
+Top-1 kutilgan ro'yxatda 6/8, asosiy modda top-3 da 6/8, kamida bitta kutilgan modda top-6 da 8/8, noaniq
+savollar 2/2 aniqlashtirishga yuborildi, qaytarilgan hujjatlar 100% `amalda`, uydirma havola 0.
+Ochiq kamchiliklar: 8-savol (mehnat shartnomasi) va 9-savol (bojxona to'lovi) asosiy moddalari top-6 da yo'q.
