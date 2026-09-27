@@ -396,5 +396,5 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - Testlar: `tests/test_xabarlar.py` (13 ta, soxta Telegram bot); jami 345 passed.
 - [x] Supabase'ga **011** qo'llandi (ruxsat bilan, runner orqali): checksum `2f077b46…`, RLS yoqilgan.
 - [x] Bot Mac'da qayta ishga tushirildi (job'lar: heartbeat, publish, rss, future_recheck, import_found, discover,
-      weekly_refresh); `caffeinate -i -w <bot pid>` — bot ishlaganda Mac uxlamaydi.
+      weekly_refresh). Mac uyqu sozlamalari o'zgartirilmaydi (foydalanuvchi so'rovi) — Mac uxlasa bot to'xtaydi.
 - [ ] Jonli sinov: 07:10 da RSS avtomatik (≤20 import), 09:00 dan keyin adminga tasdiq ko'rinishlari.
