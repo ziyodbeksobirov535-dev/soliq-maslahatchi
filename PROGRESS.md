@@ -285,7 +285,11 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
       - Eski sessiyadagi "8 qaror" savollari repoda saqlanmagan — ular bo'yicha qayta o'lchanmadi (qarorlar
         Supabase'da hali yo'q). Bazasiz testlar: `test_stem`, `test_stem_variants`, OR guruh; jami 180 passed.
         DB'li `test_search` (sk_db) kutilgan qiymatlari lokal Postgres bilan qayta tekshirilishi kerak.
-- [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
+- [x] Kirill yozuvidagi RSS — tekshirildi (2026-09-28), muammo yo'q: fixture (131) va jonli RSS (122, bitta
+      so'rov) da nomi kirillcha element **yo'q**. Yagona element — Senat qarori: turi kirillcha
+      ("Ўзбекистон Республикаси Олий Мажлиси Сенатининг қарори", №СҚ-355-V), nomi lotincha va "ko'chmas mulk"
+      bo'yicha filtrga tushadi. Regressiya testi qo'shildi; kod o'zgartirilmadi. Kirillcha nomlar paydo bo'lsa —
+      kalit so'zlar uchun kirill→lotin transliteratsiya qo'shish mumkin.
 
 ### Test qilinishi kerak (oxirida)
 - [x] Bazasiz testlar (2026-09-27, MacBook, Python 3.12): `tests/test_collector.py` — 41 ta: parse_search

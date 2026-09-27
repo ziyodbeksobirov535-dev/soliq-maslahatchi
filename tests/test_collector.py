@@ -277,6 +277,15 @@ def test_strong_and_domain_words():
     assert not set(news.KUCHLI_SOZLAR) & set(news.SOHA_SOZLARI)
 
 
+def test_cyrillic_doc_type_item_is_filtered_by_latin_title():
+    """RSS'dagi yagona kirillcha element (2026-09-27 fixture va 2026-09-28 jonli RSS'da ham): turi kirillcha
+    (Senat qarori), nomi lotincha — filtr nom bo'yicha ishlaydi."""
+    item = next(i for i in rss_items() if i.description.startswith("Ўзбекистон Республикаси Олий Мажлиси"))
+    assert item.doc_type == "Ўзбекистон Республикаси Олий Мажлиси Сенатининг қарори"
+    assert item.number == "СҚ-355-V"
+    assert news.keyword_hits(item) == ["kochmas mulk"]
+
+
 # --- discovery (soxta Lex.uz va baza) ----------------------------------------
 
 
