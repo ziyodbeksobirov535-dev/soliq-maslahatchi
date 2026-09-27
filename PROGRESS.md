@@ -151,5 +151,8 @@ xatolar ierarxiyasi. SDK 1.x `httpx2` ustida — testlarda client soxta obyekt b
 - [x] Lokal nusxa (6 hujjat, 24 254 element) — retrieval natijalari Supabase bilan bir xil; kontekst 6–20 ming belgi
 
 ### Kutilmoqda
-- [ ] Jonli Claude bilan 5 savol: `ANTHROPIC_API_KEY` muhitda yo'q. Kalit environment variables ga qo'shilgach:
-      `python -m app.ai.console` (natija `docs/phase4_console_report.md` ga yoziladi).
+- [ ] Jonli Claude bilan 5 savol. 2026-09-27: kalit bilan urinildi — API "credit balance is too low" (400) qaytardi;
+      zanjir xatoni to'g'ri ushladi (foydalanuvchiga sodda xabar, logda request_id). Anthropic hisobiga kredit
+      qo'shilgach: `bash scripts/dev_replica.sh` (kerak bo'lsa) va
+      `SUPABASE_DB_URL=postgresql://postgres@127.0.0.1:5433/soliq_replica python -m app.ai.console`
+      (natija `docs/phase4_console_report.md` ga yoziladi). Kalit repoga yozilmaydi — faqat muhit o'zgaruvchisi.
