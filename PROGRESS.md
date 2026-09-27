@@ -343,7 +343,7 @@ Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `bash -n` va `py_compile` te
 
 ## PHASE 8 — Foydalanuvchi qulayligi
 
-### A bosqich ✅ kod va testlar (2026-09-28; Supabase'ga 010 hali qo'llanmagan)
+### A bosqich ✅ kod va testlar (2026-09-28)
 - [x] **Claude'siz javob** (`sources_only`): kalit yo'q / kredit tugagan / API xatosi → "texnik xatolik" o'rniga
       3 ta eng yaqin modda/bo'lim, har biridan mos parcha (≤300 belgi) va Lex.uz havolasi
       (`answer.sources_only`, `answer_without_llm`). Aniq modda so'ralsa — o'sha modda.
@@ -366,7 +366,13 @@ Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `bash -n` va `py_compile` te
 - [x] **/profil tugmalar bilan**: soha / rejim / shakl → variantlar, "Boshqa (o'zim yozaman)", "Tozalash";
       eski `/profil rejim ...` ham ishlaydi.
 - Testlar: 332 passed (lokal PostgreSQL 17), bazasiz 207 passed.
-- Ishga tushirish uchun Supabase'ga **010** qo'llanishi kerak (foydalanuvchi ruxsati bilan).
+- [x] Supabase'ga **010** qo'llandi (foydalanuvchi ruxsati bilan, `python -m app.database.migrate`): checksum `ff5ce163…`,
+      `sozlar` 17 200 so'z, anon'da EXECUTE yo'q, baza 69 MB. Bot Mac'da yangi kod bilan qayta ishga tushirildi.
 
-### B bosqich — yangilik xabarlari (dizayn, tasdiq kutilmoqda)
+### B bosqich — yangilik xabarlari (dizayn; foydalanuvchi qarorlari 2026-09-28)
 Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yuboriladi.
+- Yuborish: yangilik aniqlanishi bilan, lekin kunduzi (tunda topilsa — ertalab navbat bilan).
+- **Yuborishdan oldin admin tasdig'i**: admin ko'rinishini oladi → [✅ Yuborish] [❌ Bekor]; tasdiqsiz hech kimga
+  ketmaydi.
+- Tahlil: Claude bilan — bandlar hujjat elementlariga bog'lanadi va tekshiriladi; Claude'siz — metadata +
+  hujjatning birinchi bandlari.
