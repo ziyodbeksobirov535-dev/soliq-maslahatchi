@@ -398,3 +398,24 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - [x] Bot Mac'da qayta ishga tushirildi (job'lar: heartbeat, publish, rss, future_recheck, import_found, discover,
       weekly_refresh). Mac uyqu sozlamalari o'zgartirilmaydi (foydalanuvchi so'rovi) — Mac uxlasa bot to'xtaydi.
 - [ ] Jonli sinov: 07:10 da RSS avtomatik (≤20 import), 09:00 dan keyin adminga tasdiq ko'rinishlari.
+
+### Majburiy kanal a'zoligi ✅ kod va testlar (2026-09-28; kanal havolasi hali berilmagan — o'chiq)
+- [x] `app/bot/subscription.py`: `REQUIRED_CHANNEL` (@nom yoki -100 id) va `REQUIRED_CHANNEL_URL` (.env). A'zo
+      bo'lmagan foydalanuvchining xabari/tugmasi handler'ga yetmaydi — "📢 Kanalga o'tish" + "✅ A'zo bo'ldim".
+      /start ishlaydi (ro'yxatga olinadi) va taklif ko'rsatadi; adminlar tekshirilmaydi; a'zolik 10 daqiqa
+      keshlanadi; tekshirib bo'lmasa (bot kanalda admin emas) — foydalanuvchi to'xtatilmaydi, logda ogohlantirish.
+- **Yoqish:** kanalga botni admin qilib qo'shing, `.env` ga `REQUIRED_CHANNEL=@kanal` (yopiq bo'lsa
+  `REQUIRED_CHANNEL=-100...` va `REQUIRED_CHANNEL_URL=https://t.me/+...`), botni qayta ishga tushiring.
+- Testlar: 7 ta (test_bot); jami 352 passed.
+
+## Keyingi yaxshilanishlar (takliflar, 2026-09-28 — foydalanuvchi bilan muhokama qilinadi)
+1. **Serverga ko'chirish** (docs/DEPLOYMENT.md) — Mac uxlasa bot to'xtaydi; yangilik xabarlari va RSS 24/7 server talab qiladi.
+2. **Kanalga yangiliklarni avtomatik joylash** — admin tasdiqlagan xabar kanalga ham (jadval tayyor).
+3. **Obuna / pullik tarif** — `obunalar` jadvali, bepul limit (masalan, kuniga 5 savol), Click/Payme to'lov.
+4. **Profilga moslashgan javob** — soha/rejim Claude promptiga (masalan, aylanma soliq to'lovchi uchun QQS javobi farqli).
+5. **Hisob-kitob yordamchisi** — QQS, JSHDS, aylanma solig'i, jarima va penya kalkulyatori (formula + modda havolasi).
+6. **Soliq kalendari** — hisobot va to'lov muddatlari eslatmasi (15-sana va h.k.), profil bo'yicha.
+7. **Suhbat konteksti** — "u qachon to'lanadi?" kabi davomiy savollar oldingi savolga bog'lansin.
+8. **Admin paneli** — /stat kengaytmasi: 👎 baholangan javoblar, topilmagan savollar (baza to'ldirish uchun), xabarlar holati.
+9. **Ovozli savol** — Telegram voice → matn (keyinchalik).
+10. **Baza kengayishi** — kunlik import (`DISCOVERY_DAILY_LIMIT=50`) Supabase'da yoqilsa ~20 kunda ~1 000 farmon/qaror.

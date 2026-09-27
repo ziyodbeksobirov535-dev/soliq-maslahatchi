@@ -37,6 +37,7 @@ from app.bot.keyboards import (
     profile_options_keyboard,
     without_rating,
 )
+from app.bot.subscription import CHECK_CALLBACK, GATE_TEXT, MembershipChecker, gate_keyboard
 from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
@@ -103,11 +104,29 @@ async def send_long(message: Message, html_text: str, reply_markup: InlineKeyboa
                              reply_markup=reply_markup if i == len(parts) - 1 else None)
 
 
-async def cmd_start(message: Message, pool: asyncpg.Pool, state: FSMContext) -> None:
+async def cmd_start(message: Message, pool: asyncpg.Pool, settings: Settings, state: FSMContext,
+                    membership: MembershipChecker) -> None:
     await state.clear()
+    tg_id = message.from_user.id
     async with pool.acquire() as conn:
-        await ensure_user(conn, message.from_user.id)
+        await ensure_user(conn, tg_id)
     await message.answer(START_TEXT, parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW)
+    if settings.required_channel and not settings.is_admin(tg_id) and \
+            await membership.is_member(message.bot, settings, tg_id) is False:
+        await message.answer(GATE_TEXT, parse_mode=ParseMode.HTML, reply_markup=gate_keyboard(settings))
+
+
+async def on_subscription_check(query: CallbackQuery, settings: Settings, membership: MembershipChecker) -> None:
+    """"✅ A'zo bo'ldim": a'zolikni keshsiz qayta tekshiradi."""
+    if not settings.required_channel:
+        await query.answer()
+        return
+    ok = await membership.is_member(query.bot, settings, query.from_user.id, fresh=True)
+    if ok is False:
+        await query.answer("Siz hali kanalga a'zo emassiz. Avval a'zo bo'ling.", show_alert=True)
+        return
+    await query.answer("Rahmat!")
+    await query.message.edit_text("✅ Rahmat! Endi savolingizni yozishingiz mumkin.")
 
 
 # --- /profil -------------------------------------------------------------------------
@@ -408,5 +427,6 @@ def create_router() -> Router:
     router.callback_query(F.data.startswith("r:"))(on_rate)
     router.callback_query(F.data.startswith("p:"))(on_profile_button)
     router.callback_query(F.data.startswith("x:"))(on_xabar_decision)
+    router.callback_query(F.data == CHECK_CALLBACK)(on_subscription_check)
     router.errors()(on_error)
     return router

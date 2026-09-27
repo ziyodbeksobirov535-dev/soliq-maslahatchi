@@ -11,8 +11,17 @@ from datetime import datetime, timezone
 import pytest
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import SendMessage
-from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
+from aiogram.methods import GetChatMember, SendMessage
+from aiogram.types import (
+    CallbackQuery,
+    Chat,
+    ChatMemberLeft,
+    ChatMemberMember,
+    Message,
+    MessageEntity,
+    Update,
+    User,
+)
 
 from app.ai.schemas import AnswerOutput, Citation
 from app.bot.app import build_dispatcher
@@ -32,15 +41,19 @@ TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
 
 
 class MockedSession(BaseSession):
-    def __init__(self) -> None:
+    def __init__(self, members: set[int] | None = None) -> None:
         super().__init__()
         self.requests: list = []
+        self.members = members or set()  # majburiy kanal a'zolari
 
     async def close(self) -> None:
         pass
 
     async def make_request(self, bot, method, timeout=None):
         self.requests.append(method)
+        if isinstance(method, GetChatMember):
+            user = User(id=method.user_id, is_bot=False, first_name="Test")
+            return ChatMemberMember(user=user) if method.user_id in self.members else ChatMemberLeft(user=user)
         if isinstance(method, SendMessage):
             return Message(message_id=len(self.requests), date=datetime.now(timezone.utc),
                            chat=Chat(id=method.chat_id, type="private"), text=method.text)
@@ -95,9 +108,9 @@ def bot_db(db):
     return db
 
 
-def feed(dsn, texts, *, user_id=USER, llm=None, cfg=None):
+def feed(dsn, texts, *, user_id=USER, llm=None, cfg=None, members=None):
     """Update'larni ketma-ket beradi; (session, db-query-helper natijasi) qaytaradi."""
-    session = MockedSession()
+    session = MockedSession(members)
 
     async def go():
         pool = await create_pool(dsn, min_size=1, max_size=2)
@@ -332,3 +345,75 @@ def test_unexpected_error_gives_friendly_reply(bot_db):
     s = feed(bot_db, ["Soliq imtiyozlari shartlari?"], user_id=8000, llm=FakeLLM(boom))
     assert "texnik xatolik" in s.sent[-1].text
     assert "RuntimeError" not in s.sent[-1].text and "Traceback" not in s.sent[-1].text
+
+
+# --- majburiy kanal a'zoligi -------------------------------------------------------------
+
+
+def channel_cfg():
+    return settings(required_channel="@soliq_kanal")
+
+
+def test_channel_gate_blocks_non_members(bot_db):
+    s = feed(bot_db, ["/modda 461", "QQS stavkasi"], user_id=5050, cfg=channel_cfg())
+    assert all("kanalimizga a'zo bo'ling" in m.text for m in s.sent)
+    buttons = [b for row in s.sent[0].reply_markup.inline_keyboard for b in row]
+    assert buttons[0].url == "https://t.me/soliq_kanal" and buttons[1].callback_data == "sub:check"
+    assert not query(bot_db, "SELECT 1 FROM suhbatlar WHERE telegram_id = 5050")
+
+
+def test_channel_gate_start_registers_and_shows_invite(bot_db):
+    s = feed(bot_db, ["/start"], user_id=5100, cfg=channel_cfg())
+    assert "Assalomu alaykum" in s.sent[0].text and "kanalimizga a'zo bo'ling" in s.sent[1].text
+    assert query(bot_db, "SELECT 1 FROM foydalanuvchilar WHERE telegram_id = 5100")
+
+
+def test_channel_members_and_admins_pass(bot_db):
+    member = feed(bot_db, ["/modda 461"], user_id=5200, cfg=channel_cfg(), members={5200})
+    assert "461-modda" in member.sent[0].text
+    admin = feed(bot_db, ["/modda 461"], user_id=ADMIN, cfg=channel_cfg())
+    assert "461-modda" in admin.sent[0].text
+    assert not [r for r in admin.requests if isinstance(r, GetChatMember)]  # admin tekshirilmaydi
+
+
+def test_channel_membership_is_cached(bot_db):
+    s = feed(bot_db, ["/modda 461", "/modda 462"], user_id=5300, cfg=channel_cfg(), members={5300})
+    assert len([r for r in s.requests if isinstance(r, GetChatMember)]) == 1
+
+
+def test_joined_button_rechecks(bot_db):
+    s = feed(bot_db, [callback(5400, "sub:check")], user_id=5400, cfg=channel_cfg())
+    alert = [r for r in s.requests if type(r).__name__ == "AnswerCallbackQuery"][0]
+    assert "hali kanalga a'zo emassiz" in alert.text
+    s = feed(bot_db, [callback(5400, "sub:check")], user_id=5400, cfg=channel_cfg(), members={5400})
+    edits = [r for r in s.requests if type(r).__name__ == "EditMessageText"]
+    assert "Endi savolingizni yozishingiz mumkin" in edits[0].text
+
+
+def test_channel_check_error_does_not_lock_users_out(bot_db):
+    class Broken(MockedSession):
+        async def make_request(self, bot, method, timeout=None):
+            if isinstance(method, GetChatMember):
+                from aiogram.exceptions import TelegramBadRequest
+
+                raise TelegramBadRequest(method=method, message="chat not found")
+            return await super().make_request(bot, method, timeout)
+
+    session = Broken()
+
+    async def go():
+        pool = await create_pool(bot_db, min_size=1, max_size=2)
+        try:
+            dp = build_dispatcher(pool, channel_cfg(), None)
+            await dp.feed_update(Bot(TOKEN, session=session), update(5500, "/modda 461"))
+        finally:
+            await pool.close()
+
+    run(go())
+    assert "461-modda" in session.sent[0].text
+
+
+def test_gate_disabled_without_channel(bot_db):
+    s = feed(bot_db, ["/modda 461"], user_id=5600)
+    assert "461-modda" in s.sent[0].text
+    assert not [r for r in s.requests if isinstance(r, GetChatMember)]

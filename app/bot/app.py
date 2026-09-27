@@ -9,6 +9,7 @@ from aiogram.types import BotCommand
 
 from app.ai.client import ClaudeLLM
 from app.bot.handlers import create_router
+from app.bot.subscription import MembershipChecker, SubscriptionMiddleware
 from app.config import Settings
 from app.database.connection import create_pool
 from app.health import write_heartbeat
@@ -29,6 +30,11 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
     dp["pool"] = pool
     dp["settings"] = settings
     dp["llm"] = llm
+    checker = MembershipChecker()
+    dp["membership"] = checker
+    gate = SubscriptionMiddleware(checker)
+    dp.message.outer_middleware(gate)
+    dp.callback_query.outer_middleware(gate)
     dp.include_router(create_router())
     return dp
 

@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     news_send_end_hour: int = Field(default=20, ge=1, le=24)
     # Shundan eski RSS yangiliklari uchun xabar tayyorlanmaydi.
     news_max_age_days: int = Field(default=3, ge=1)
+    # Majburiy kanal a'zoligi (app/bot/subscription.py): "@kanal" yoki "-100..." id; bo'sh — o'chiq.
+    # Bot kanalda admin bo'lishi kerak. URL bo'sh bo'lsa "@kanal" dan https://t.me/kanal.
+    required_channel: str | None = None
+    required_channel_url: str | None = None
 
     log_level: str = "INFO"
 
