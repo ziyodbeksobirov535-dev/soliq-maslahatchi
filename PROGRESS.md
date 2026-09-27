@@ -334,3 +334,39 @@ Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `bash -n` va `py_compile` te
 - [ ] Anthropic krediti → jonli 5 savol (`python -m app.ai.console`)
 - [ ] Telegram token → jonli bot sinovi, keyin serverga o'rnatish (`docs/DEPLOYMENT.md`)
 - [ ] Chatda ko'rsatilgan Anthropic kalitini revoke qilib, yangisini faqat server `.env` ga yozish
+
+## Mac'da jonli sinov (2026-09-28)
+- Bot @soliqexpertibot Mac'da Supabase bilan ishga tushdi (`.env`: Session pooler `aws-0-eu-central-1`,
+  `DISCOVERY_DAILY_LIMIT=0`). `/start`, `/modda 440`, `/profil`, `/yangiliklar` — to'g'ri.
+- Oddiy savol: Anthropic "credit balance is too low" → foydalanuvchiga faqat "texnik xatolik" — noqulay.
+  "Qqs satvkasi" (imlo xatosi) → kerakli 258-modda 4-o'rinda. Shundan PHASE 8.
+
+## PHASE 8 — Foydalanuvchi qulayligi
+
+### A bosqich ✅ kod va testlar (2026-09-28; Supabase'ga 010 hali qo'llanmagan)
+- [x] **Claude'siz javob** (`sources_only`): kalit yo'q / kredit tugagan / API xatosi → "texnik xatolik" o'rniga
+      3 ta eng yaqin modda/bo'lim, har biridan mos parcha (≤300 belgi) va Lex.uz havolasi
+      (`answer.sources_only`, `answer_without_llm`). Aniq modda so'ralsa — o'sha modda.
+- [x] **Kirill yozuvi**: savol lotinga o'giriladi (`query.transliterate`, е → ye so'z boshida/unlidan keyin);
+      rus klaviaturasidagi "качон", "канча" stop-so'z. Yangiliklar kalit so'z filtri ham kirillni tushunadi.
+- [x] **Ruscha savol**: soliq atamalari lug'at bo'yicha o'zbekchaga (`RU_TERMS`: НДС → qqs, налог → soliq,
+      статья → modda...), qolgan ruscha so'zlar tashlanadi; javobda "savol rus tilida — o'girib qidirdim".
+      To'liq tarjima Claude krediti bilan (rewrite_queries) yaxshilanadi.
+- [x] **Imlo xatolari**: `migrations/010_sozlar.sql` — `sozlar` lug'ati (ts_stat, ~18 800 so'z, qurish ~2 s),
+      `yangila_sozlar()`; `app/retrieval/spelling.py` — o'zagi lug'atda yo'q so'z → trigram nomzodlar →
+      Damerau–Levenshtein (5–7 harf: 1, 8+: 2), teng bo'lsa ko'p uchraydigani. Supabase lug'atida tekshirildi:
+      satvkasi → stavkasi, tulanadi → tolanadi, deklaratsya → deklaratsiya, imtyoz → imtiyoz; to'g'ri
+      so'zlar o'zgarmaydi (spec savollari bo'yicha test). Javobda "✏️ Imlo tuzatildi: «...» → «...»".
+      Lug'at import job'laridan keyin yangilanadi (rss, future, refresh, import-found; `jobs vocab`).
+      010 qo'llanmagan bazada qidiruv tuzatishsiz ishlayveradi (ogohlantirish logda).
+- [x] **/modda raqamsiz** → "Qaysi modda?" va keyingi xabar raqam sifatida (FSM); raqam bo'lmasa — oddiy savol.
+      "461", "461-modda", "modda 461", "106 mehnat" kabi xabar — to'g'ridan-to'g'ri modda.
+- [x] **Javob tugmalari**: "📖 258-modda" (to'liq matn, bo'lim ham), 👍/👎 → `suhbatlar.rating`
+      (faqat o'z savoliga), baho berilgach baho tugmalari yo'qoladi.
+- [x] **/profil tugmalar bilan**: soha / rejim / shakl → variantlar, "Boshqa (o'zim yozaman)", "Tozalash";
+      eski `/profil rejim ...` ham ishlaydi.
+- Testlar: 332 passed (lokal PostgreSQL 17), bazasiz 207 passed.
+- Ishga tushirish uchun Supabase'ga **010** qo'llanishi kerak (foydalanuvchi ruxsati bilan).
+
+### B bosqich — yangilik xabarlari (dizayn, tasdiq kutilmoqda)
+Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yuboriladi.

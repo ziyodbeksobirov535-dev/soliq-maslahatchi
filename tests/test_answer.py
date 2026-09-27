@@ -19,7 +19,13 @@ from app.ai.validation import strip_urls, validate_answer
 from app.collector.importer import import_document
 from app.config import Settings
 from app.database.connection import connect
-from app.services.answer import INSUFFICIENT_TEXT, MAX_EXTRA_ROUNDS, answer_question
+from app.services.answer import (
+    INSUFFICIENT_TEXT,
+    MAX_EXTRA_ROUNDS,
+    SOURCES_ONLY_TEXT,
+    answer_question,
+    answer_without_llm,
+)
 from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, card, soliq_kodeksi
 
@@ -266,13 +272,44 @@ def test_rewrite_queries_add_sources(sk_db):
     assert any(a.modda_raqami == "110" for a in fa.source_articles)  # "Penya" moddasi qo'shildi
 
 
-def test_llm_error_gives_simple_message(sk_db):
+def test_llm_error_shows_nearest_sources(sk_db):
     def respond(msg, n):
         raise LLMError("Anthropic API'ga ulanib bo'lmadi")
 
     fa = ask(sk_db, FakeLLM(respond), "Soliq imtiyozidan foydalanish uchun qanday shartlar bor?", use_rewrite=False)
-    assert fa.status == "error"
+    assert fa.status == "sources_only"
     assert "Traceback" not in fa.text and "Anthropic" not in fa.text
+    assert fa.text.startswith(SOURCES_ONLY_TEXT)
+    assert 1 <= len(fa.hints) <= 3
+    assert fa.hints[0].unit == ("m", "75")  # imtiyoz savolining top-1 moddasi
+    for h in fa.hints:
+        assert h.link.startswith("https://lex.uz/docs/-4674902#") and h.link in fa.text
+        assert h.snippet and len(h.snippet) <= 301
+
+
+def test_llm_error_on_direct_article_shows_that_article(sk_db):
+    def respond(msg, n):
+        raise LLMError("kredit yo'q")
+
+    fa = ask(sk_db, FakeLLM(respond), "Soliq kodeksi 461-modda nima deydi?")
+    assert fa.status == "sources_only"
+    assert [h.unit for h in fa.hints] == [("m", "461")]
+    assert fa.hints[0].title.startswith("461-modda")
+
+
+def test_answer_without_llm(sk_db):
+    async def go():
+        conn = await connect(sk_db)
+        try:
+            return [await answer_without_llm(conn, q, TODAY) for q in (
+                "Soliq imtiyozidan foydalanish uchun qanday shartlar bor?", "Bu qanday?", "qwzx yyyy")]
+        finally:
+            await conn.close()
+
+    found, vague, missing = run(go())
+    assert found.status == "sources_only" and found.hints
+    assert vague.status == "needs_clarification"
+    assert missing.status == "not_found" and not missing.hints
 
 
 def test_direct_article_goes_to_claude_as_single_source(sk_db):

@@ -5,6 +5,7 @@
     python -m app.collector.jobs refresh    # kuzatiladigan hujjatlarni to'liq yangilash (hash + element diff)
     python -m app.collector.jobs discover   # Lex.uz qidiruvi: amaldagi eski hujjatlar ro'yxatini yig'ish
     python -m app.collector.jobs import-found [--limit N]   # topilganlardan N tasini import qilish
+    python -m app.collector.jobs vocab      # imlo tuzatish lug'atini (sozlar) qayta qurish
 
 Har bir job xatoni o'zi ushlaydi va log qiladi — scheduler va bot yiqilmaydi (spec 24).
 """
@@ -46,11 +47,23 @@ async def refresh_document(pool: asyncpg.Pool, client: lexuz.LexUzClient, lex_id
         return await import_document(conn, doc, card, lexuz.today_tashkent())
 
 
+async def refresh_vocabulary(pool: asyncpg.Pool) -> None:
+    """Imlo tuzatish lug'ati (`sozlar`) — import'dan keyin yangi so'zlar qo'shilsin (~2 s)."""
+    try:
+        async with pool.acquire() as conn:
+            n = await conn.fetchval("SELECT yangila_sozlar()")
+        log.info("vocabulary refreshed words=%d", n)
+    except Exception:
+        log.error("vocabulary refresh failed", exc_info=True)
+
+
 async def rss_job(pool: asyncpg.Pool, settings: Settings, llm) -> None:
     with request_context():
         try:
             with make_lexuz_client(settings) as client:
-                await process_rss(pool, client, llm, lexuz.today_tashkent())
+                stats = await process_rss(pool, client, llm, lexuz.today_tashkent())
+            if stats.imported:
+                await refresh_vocabulary(pool)
         except Exception:
             log.error("rss_job failed", exc_info=True)
 
@@ -72,6 +85,8 @@ async def future_recheck_job(pool: asyncpg.Pool, settings: Settings) -> None:
                         log.info("future recheck lex_id=%s status=%s", r["lex_id"], res.status)
                     except Exception:
                         log.error("future recheck failed lex_id=%s", r["lex_id"], exc_info=True)
+            if rows:
+                await refresh_vocabulary(pool)
         except Exception:
             log.error("future_recheck_job failed", exc_info=True)
 
@@ -109,6 +124,7 @@ async def weekly_refresh_job(pool: asyncpg.Pool, settings: Settings) -> None:
                              lex_id, res.added, res.changed, res.removed)
                 except Exception:
                     log.error("refresh failed lex_id=%s", lex_id, exc_info=True)
+        await refresh_vocabulary(pool)
 
 
 async def discover_job(pool: asyncpg.Pool, settings: Settings) -> None:
@@ -129,14 +145,16 @@ async def import_found_job(pool: asyncpg.Pool, settings: Settings, limit: int | 
     with request_context():
         try:
             with make_lexuz_client(settings) as client:
-                await import_pending(pool, client, limit, lexuz.today_tashkent())
+                stats = await import_pending(pool, client, limit, lexuz.today_tashkent())
+            if stats.imported:
+                await refresh_vocabulary(pool)
         except Exception:
             log.error("import_found_job failed", exc_info=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collector job'larini qo'lda ishga tushirish")
-    parser.add_argument("job", choices=["rss", "future", "refresh", "discover", "import-found"])
+    parser.add_argument("job", choices=["rss", "future", "refresh", "discover", "import-found", "vocab"])
     parser.add_argument("--limit", type=int, default=None, help="import-found: nechta hujjat (sukut: DISCOVERY_DAILY_LIMIT)")
     args = parser.parse_args()
     settings = get_settings()
@@ -156,6 +174,8 @@ def main() -> None:
                 await discover_job(pool, settings)
             elif args.job == "import-found":
                 await import_found_job(pool, settings, args.limit)
+            elif args.job == "vocab":
+                await refresh_vocabulary(pool)
             else:
                 await weekly_refresh_job(pool, settings)
         finally:

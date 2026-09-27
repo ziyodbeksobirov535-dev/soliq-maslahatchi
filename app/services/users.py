@@ -130,6 +130,17 @@ async def log_simple(conn: asyncpg.Connection, request_id: str, telegram_id: int
     )
 
 
+async def set_rating(conn: asyncpg.Connection, request_id: str, telegram_id: int, value: int) -> bool:
+    """Javobga baho (1 / -1). Faqat o'z savoliga; topilmasa False."""
+    if value not in (1, -1):
+        raise ValueError("Baho 1 yoki -1 bo'lishi kerak")
+    status = await conn.execute(
+        "UPDATE suhbatlar SET rating = $3 WHERE request_id = $1::uuid AND telegram_id = $2",
+        request_id, telegram_id, value,
+    )
+    return status.endswith(" 1")
+
+
 @dataclass(frozen=True)
 class Stats:
     users: int

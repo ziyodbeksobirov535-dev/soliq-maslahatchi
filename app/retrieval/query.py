@@ -2,6 +2,8 @@
 
 Nima qiladi:
 - matnni normallashtiradi (kichik harf, tutuq belgilarisiz — bazadagi `norm_uz()` bilan bir xil);
+  kirill yozuvidagi o'zbekcha savol lotinga o'giriladi (baza lotin yozuvida);
+- ruscha savoldagi soliq atamalari o'zbekcha atamalarga almashtiriladi (lug'at; qolgan ruscha so'zlar tashlanadi);
 - aniq modda raqamini ("461-modda") va hujjat ishorasini ("Mehnat kodeksi") ajratadi;
 - tarixiy sanani ("2024-yilda", "01.01.2025 holatiga") aniqlaydi;
 - stop-so'zlarni olib tashlaydi, o'zbekcha qo'shimchalarni ehtiyotkor kesadi va prefiks qidiruvi
@@ -22,7 +24,56 @@ from datetime import date
 _APOSTROPHES = str.maketrans("", "", "ʻʼ'‘’`´")
 _WORD_RE = re.compile(r"[a-zа-яёўқғҳ0-9]+", re.IGNORECASE)
 
+# O'zbek kirill → lotin (1995-yilgi alifbo). Tutuq belgisi normalize'da olib tashlanadi: ў → o, ғ → g.
+_CYR_LAT = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo", "ж": "j", "з": "z", "и": "i",
+    "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+    "у": "u", "ф": "f", "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "", "ь": "", "ы": "i",
+    "э": "e", "ю": "yu", "я": "ya", "ў": "o", "қ": "q", "ғ": "g", "ҳ": "h",
+}
+# "е" so'z boshida va unlidan keyin "ye" o'qiladi: ер → yer, иерархия → iyerarxiya.
+_CYR_YE_RE = re.compile(r"(?<![а-яёўқғҳ])е|(?<=[аеёиоуўэюя])е")
+_CYR_RE = re.compile(r"[а-яёўқғҳ]")
+_UZ_ONLY_CYR = frozenset("ўқғҳ")
+_RU_ONLY_CYR = frozenset("ыщэ")
+
+# Ruscha savol: faqat soliq atamalari o'zbekchaga o'tadi, qolgan so'zlar tashlanadi (tarjima emas — qidiruv
+# atamalari). Kalit — so'z boshi (eng uzuni ustun); 4 harfdan qisqa kalitlar faqat to'liq so'zga mos keladi.
+RU_TERMS: dict[str, str] = {
+    "ндс": "qqs", "ндфл": "jshds", "ип": "yakka tartibdagi tadbirkor", "ооо": "masuliyati cheklangan jamiyat",
+    "налогоплательщик": "soliq tolovchi", "налог": "soliq", "прибыл": "foyda", "доход": "daromad",
+    "оборот": "aylanma", "ставк": "stavka", "штраф": "jarima", "пени": "penya", "пеня": "penya",
+    "срок": "muddat", "отчет": "hisobot", "отчёт": "hisobot", "декларац": "deklaratsiya", "льгот": "imtiyoz",
+    "имуществ": "mol-mulk", "земел": "yer", "таможен": "bojxona", "пошлин": "boj", "акциз": "aksiz",
+    "зарплат": "ish haqi", "заработн": "ish haqi", "трудов": "mehnat", "труд": "mehnat",
+    "договор": "shartnoma", "контракт": "shartnoma", "нерезидент": "norezident", "резидент": "rezident",
+    "дивиденд": "dividend", "бухгалтер": "buxgalteriya", "счет-фактур": "hisobvaraq-faktura",
+    "счёт-фактур": "hisobvaraq-faktura", "касс": "kassa", "регистрац": "royxatdan otkazish",
+    "ликвидац": "tugatish", "увольнен": "mehnat shartnomasini bekor qilish", "отпуск": "tatil",
+    "импорт": "import", "экспорт": "eksport", "социальн": "ijtimoiy", "уплат": "tolash", "оплат": "tolash",
+    "платеж": "tolov", "платёж": "tolov", "возврат": "qaytarish", "вычет": "chegirma", "освобожд": "ozod",
+    "обязательств": "majburiyat", "аренд": "ijara", "расход": "xarajat", "амортизац": "amortizatsiya",
+    "статья": "modda", "статье": "modda", "стать": "modda", "кодекс": "kodeks", "индивидуальн": "yakka tartibdagi",
+    "предпринимател": "tadbirkor", "юридическ": "yuridik", "физическ": "jismoniy", "сотрудник": "xodim",
+    "работник": "xodim", "пенси": "pensiya", "электронн": "elektron", "упрощ": "soddalashtirilgan",
+    "инвентаризац": "inventarizatsiya", "аудит": "audit", "лиценз": "litsenziya", "разрешен": "ruxsatnoma",
+    "субсиди": "subsidiya", "перевоз": "tashish", "груз": "yuk", "строител": "qurilish",
+    "сельскохозяйств": "qishloq xojaligi", "штрафн": "jarima", "налоговый кодекс": "soliq kodeksi",
+}
+_RU_KEYS = sorted(RU_TERMS, key=len, reverse=True)
+# O'zbek kirillida ishlatilmaydigan ruscha atamalar (o'zbekchada "солиқ", "фойда", "муддат", "ҳисобот"...).
+RU_ONLY_STEMS = ("налог", "прибыл", "доход", "срок", "отчет", "отчёт", "льгот", "штраф", "стать", "пошлин",
+                 "зарплат", "уплат", "оплат", "платеж", "платёж", "возврат", "вычет", "ндс", "ндфл", "ооо")
+# Ruscha savol belgisi: o'zbek kirillida bo'lmagan harflar yoki tez-tez uchraydigan ruscha so'zlar.
+RU_MARKERS = frozenset(
+    """
+    как какой какая какие каков какова сколько что это для при на по во со или ли нужно надо можно когда
+    где кто чем если есть до от из об за не ни же бы мне мы вы он она они размер порядок платить
+    """.split()
+)
+
 # Savol so'zlari, bog'lovchilar, olmoshlar va juda umumiy fe'llar (normallashtirilgan shaklda).
+# "kanday", "kachon"... — rus klaviaturasida kirillcha yozilgan "қандай", "қачон" (қ o'rniga к).
 STOPWORDS = frozenset(
     """
     qanday qanaqa qachon qancha qaysi nima nimaga nega necha kim qayer qayerda qayerga
@@ -30,6 +81,7 @@ STOPWORDS = frozenset(
     bu shu u ular men biz siz mening bizning sizning ushbu osha ana mana
     qilish qiladi qilinadi qilib qilgan bolsa boladi bolgan bolishi mumkin mumkinmi
     edi ekan emish haqida boyicha deb dan ga da ni ning
+    kanday kanaka kachon kancha kaysi kayer kayerda kayerga
     """.split()
 )
 
@@ -94,8 +146,39 @@ _YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil")
 _YEAR_MONTH_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil\w*\s+(" + "|".join(_MONTHS) + r")")
 
 
+def transliterate(text: str) -> str:
+    """O'zbek kirill → lotin (kichik harf). Lotin matn o'zgarmaydi."""
+    low = (text or "").lower()
+    if not _CYR_RE.search(low):
+        return low
+    low = _CYR_YE_RE.sub("ye", low)
+    return "".join(_CYR_LAT.get(ch, ch) for ch in low)
+
+
 def normalize(text: str) -> str:
-    return (text or "").lower().translate(_APOSTROPHES)
+    return transliterate(text).translate(_APOSTROPHES)
+
+
+def is_russian(text: str) -> bool:
+    low = (text or "").lower()
+    if not _CYR_RE.search(low) or _UZ_ONLY_CYR & set(low):
+        return False
+    words = re.findall(r"[а-яё]+", low)
+    return (bool(_RU_ONLY_CYR & set(low)) or any(w in RU_MARKERS for w in words)
+            or any(w.startswith(RU_ONLY_STEMS) for w in words))
+
+
+def russian_to_uzbek(text: str) -> str:
+    """Ruscha savoldan o'zbekcha qidiruv matni: lug'atdagi atamalar, raqamlar va lotin so'zlar qoladi."""
+    out = []
+    for token in re.findall(r"[а-яё]+(?:-[а-яё]+)*|[a-z0-9]+(?:[-.][a-z0-9]+)*", (text or "").lower()):
+        if not _CYR_RE.search(token):
+            out.append(token)
+            continue
+        key = next((k for k in _RU_KEYS if (token == k if len(k) < 4 else token.startswith(k))), None)
+        if key is not None:
+            out.append(RU_TERMS[key])
+    return " ".join(out)
 
 
 def _strip_suffixes(word: str) -> str:
@@ -151,6 +234,8 @@ class QueryPlan:
     question: str
     normalized: str
     terms: list[str] = field(default_factory=list)  # o'zaklar (stop-so'zlarsiz)
+    words: dict[str, str] = field(default_factory=dict)  # o'zak → savoldagi so'z (imlo tuzatish uchun)
+    language: str = "uz"  # "ru" — ruscha savol, atamalar lug'at bo'yicha o'zbekchaga o'tkazilgan
     bigrams: list[tuple[str, str]] = field(default_factory=list)  # yonma-yon so'zlar: "mehnat shartnoma"
     phrases: list[list[str]] = field(default_factory=list)  # sinonim iboralari (o'zaklar)
     variants: dict[str, list[str]] = field(default_factory=dict)  # o'zak → fe'l oilasidagi juft o'zaklar
@@ -225,8 +310,9 @@ def _historical(norm: str, today: date) -> tuple[date | None, str | None]:
 
 
 def analyze(question: str, today: date) -> QueryPlan:
-    norm = normalize(question)
-    plan = QueryPlan(question=question, normalized=norm)
+    russian = is_russian(question)
+    norm = normalize(russian_to_uzbek(question) if russian else question)
+    plan = QueryPlan(question=question, normalized=norm, language="ru" if russian else "uz")
 
     m = _ARTICLE_RE.search(norm)
     if m:
@@ -260,6 +346,7 @@ def analyze(question: str, today: date) -> QueryPlan:
             seen.add(s)
             seen.update(variants)  # "tashish ... tashuvchi" — bitta oila, bitta so'z
             plan.terms.append(s)
+            plan.words[s] = w
             if variants:
                 plan.variants[s] = variants
         for key in (w, s):

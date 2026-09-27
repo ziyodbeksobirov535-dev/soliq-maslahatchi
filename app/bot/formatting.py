@@ -11,7 +11,7 @@ import re
 
 from app.ai.prompts import SourceArticle
 from app.retrieval.articles import Article
-from app.services.answer import FinalAnswer
+from app.services.answer import SOURCES_ONLY_TEXT, FinalAnswer
 
 TELEGRAM_LIMIT = 4096
 SAFE_LIMIT = 3900
@@ -66,8 +66,38 @@ def link(url: str, title: str) -> str:
     return f'<a href="{html.escape(url, quote=True)}">{esc(title)}</a>'
 
 
+def format_notes(fa: FinalAnswer) -> list[str]:
+    """Javob boshidagi izohlar: imlo tuzatishlari va ruscha savol."""
+    notes = []
+    if fa.corrections:
+        fixes = ", ".join(f"«{esc(a)}» → «{esc(b)}»" for a, b in fa.corrections.items())
+        notes.append(f"✏️ Imlo tuzatildi: {fixes}")
+    if fa.language == "ru":
+        notes.append("🔤 Savol rus tilida — atamalarni o'zbekchaga o'girib qidirdim, javob o'zbek tilida.")
+    return [*notes, ""] if notes else []
+
+
+def format_sources_only(fa: FinalAnswer) -> str:
+    lines = [esc(SOURCES_ONLY_TEXT), ""]
+    for h in fa.hints:
+        lines.append(f"📌 <b>{esc(h.document_name)}</b>, {link(h.link, h.title)}")
+        if h.snippet:
+            lines.append(f"<i>{esc(h.snippet)}</i>")
+        lines.append("")
+    lines.append("To'liq matnni ko'rish uchun quyidagi tugmani bosing.")
+    return "\n".join(lines)
+
+
 def format_final_answer(fa: FinalAnswer) -> str:
-    """answered — model javobi + bazadagi manbalar; boshqa holatlar — backend matni (escape)."""
+    """Izohlar + javob. answered — model javobi va bazadagi manbalar; sources_only — topilgan manbalar;
+    boshqa holatlar — backend matni (escape)."""
+    body = _format_body(fa)
+    return "\n".join(format_notes(fa) + [body])
+
+
+def _format_body(fa: FinalAnswer) -> str:
+    if fa.status == "sources_only":
+        return format_sources_only(fa)
     if fa.status != "answered":
         lines = []
         for line in fa.text.split("\n"):

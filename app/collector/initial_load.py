@@ -83,7 +83,9 @@ async def run_import(settings: Settings, preview: Preview, proxy_url: str | None
     if settings.supabase_db_url is not None:
         conn = await connect(settings.supabase_db_url.get_secret_value())
         try:
-            return await import_document(conn, preview.doc, preview.card, today)
+            result = await import_document(conn, preview.doc, preview.card, today)
+            await conn.execute("SELECT yangila_sozlar()")  # imlo tuzatish lug'ati
+            return result
         finally:
             await conn.close()
     settings.require("supabase_url", "supabase_service_role_key")

@@ -12,12 +12,12 @@ import pytest
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.methods import SendMessage
-from aiogram.types import Chat, Message, MessageEntity, Update, User
+from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 
 from app.ai.schemas import AnswerOutput, Citation
 from app.bot.app import build_dispatcher
 from app.bot.formatting import md_to_html, split_message
-from app.bot.handlers import parse_modda_args
+from app.bot.handlers import modda_only, parse_modda_args
 from app.collector.importer import import_document
 from app.config import Settings
 from app.database.connection import connect, create_pool
@@ -67,6 +67,14 @@ def update(user_id: int, text: str, n: int = 1) -> Update:
     )
 
 
+def callback(user_id: int, data: str, n: int = 100) -> Update:
+    msg = Message(message_id=n, date=datetime.now(timezone.utc), chat=Chat(id=user_id, type="private"),
+                  from_user=User(id=1, is_bot=True, first_name="Bot"), text="javob")
+    return Update(update_id=n, callback_query=CallbackQuery(
+        id=str(n), from_user=User(id=user_id, is_bot=False, first_name="Test"), chat_instance="c", data=data,
+        message=msg))
+
+
 def settings(**kw) -> Settings:
     return Settings(_env_file=None, admin_telegram_ids=frozenset({ADMIN}), **kw)
 
@@ -97,7 +105,7 @@ def feed(dsn, texts, *, user_id=USER, llm=None, cfg=None):
             bot = Bot(TOKEN, session=session)
             dp = build_dispatcher(pool, cfg or settings(), llm)
             for i, t in enumerate(texts, 1):
-                await dp.feed_update(bot, update(user_id, t, i))
+                await dp.feed_update(bot, t if isinstance(t, Update) else update(user_id, t, i))
         finally:
             await pool.close()
 
@@ -167,7 +175,7 @@ def test_modda_with_future_changes_warns(bot_db):
 
 
 @pytest.mark.parametrize("cmd,expected", [
-    ("/modda", "Modda raqamini yozing"), ("/modda abc", "Modda raqamini yozing"),
+    ("/modda", "Qaysi modda?"), ("/modda abc", "Qaysi modda?"),
     ("/modda 9999", "bazada topilmadi"), ("/modda 106 mehnat", "bazada topilmadi"),  # test bazada faqat SK
 ])
 def test_modda_errors(bot_db, cmd, expected):
@@ -198,11 +206,70 @@ def test_unknown_command_and_news(bot_db):
 # --- oddiy savol -------------------------------------------------------------------------
 
 
-def test_question_without_llm_is_polite_and_logged(bot_db):
+def test_question_without_llm_shows_sources_and_logged(bot_db):
     s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?"], user_id=3000, llm=None)
-    assert "sozlanmagan" in s.sent[0].text and "/modda" in s.sent[0].text
+    msg = s.sent[0]
+    assert msg.text.startswith("Hozir to'liq javob tayyorlay olmadim")
+    assert "📌 <b>" in msg.text and '<a href="https://lex.uz/docs/-4674902#' in msg.text
+    buttons = [b for row in msg.reply_markup.inline_keyboard for b in row]
+    assert any(b.callback_data.startswith("v:m:-4674902:") for b in buttons)
+    assert {b.text for b in buttons} >= {"👍 Foydali", "👎 Foydasiz"}
     rows = query(bot_db, "SELECT status FROM suhbatlar WHERE telegram_id = 3000")
-    assert [r["status"] for r in rows] == ["unavailable"]
+    assert [r["status"] for r in rows] == ["sources_only"]
+
+
+def test_modda_asks_number_then_shows_article(bot_db):
+    s = feed(bot_db, ["/modda", "461"], user_id=3100)
+    assert "Qaysi modda?" in s.sent[0].text
+    assert "461-modda. Soliq toʻlovchilar" in s.sent[1].text
+
+
+def test_modda_prompt_then_question_goes_to_question(bot_db):
+    s = feed(bot_db, ["/modda", "Soliq imtiyozlari shartlari qanday?"], user_id=3150, llm=None)
+    assert s.sent[1].text.startswith("Hozir to'liq javob tayyorlay olmadim")
+
+
+@pytest.mark.parametrize("text", ["461", "461-modda", "modda 461", "461 moddasi"])
+def test_plain_article_number_shows_article(bot_db, text):
+    assert "461-modda. Soliq toʻlovchilar" in feed(bot_db, [text], user_id=3200).sent[0].text
+
+
+def test_modda_only_parser():
+    assert modda_only("461") == "461"
+    assert modda_only("106 mehnat") == "106 mehnat"
+    assert modda_only("121-1-modda") == "121-1"
+    assert modda_only("QQS stavkasi qancha") is None
+    assert modda_only("461 va 462") is None
+
+
+def test_view_source_button(bot_db):
+    s = feed(bot_db, [callback(3300, "v:m:-4674902:461")], user_id=3300)
+    assert "461-modda. Soliq toʻlovchilar" in s.sent[0].text
+    s = feed(bot_db, [callback(3300, "v:m:-4674902:9999")], user_id=3300)
+    assert not s.sent  # topilmasa — faqat ogohlantirish (answerCallbackQuery)
+
+
+def test_rating_saved_only_for_own_answer(bot_db):
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?"], user_id=3400, llm=None)
+    rid = query(bot_db, "SELECT request_id FROM suhbatlar WHERE telegram_id = 3400")[0]["request_id"]
+    feed(bot_db, [callback(3999, f"r:{rid}:-1")], user_id=3999)  # boshqa foydalanuvchi
+    assert query(bot_db, "SELECT rating FROM suhbatlar WHERE telegram_id = 3400")[0]["rating"] is None
+    s = feed(bot_db, [callback(3400, f"r:{rid}:1")], user_id=3400)
+    assert query(bot_db, "SELECT rating FROM suhbatlar WHERE telegram_id = 3400")[0]["rating"] == 1
+    assert [type(r).__name__ for r in s.requests] == ["AnswerCallbackQuery", "EditMessageReplyMarkup"]
+
+
+def test_profile_buttons(bot_db):
+    s = feed(bot_db, ["/profil", callback(3500, "p:rejim"), callback(3500, "p:rejim:0", 101)], user_id=3500)
+    assert s.sent[0].reply_markup.inline_keyboard[0][0].callback_data == "p:soha"
+    edits = [r for r in s.requests if type(r).__name__ == "EditMessageText"]
+    assert "Soliq rejimi" in edits[0].text
+    assert "Soliq rejimi: Aylanma solig'i" in edits[1].text
+    s = feed(bot_db, [callback(3500, "p:soha:o"), "Mebel ishlab chiqarish"], user_id=3500)
+    assert "Faoliyat sohasi: Mebel ishlab chiqarish" in s.sent[-1].text
+    s = feed(bot_db, [callback(3500, "p:soha:x")], user_id=3500)
+    edits = [r for r in s.requests if type(r).__name__ == "EditMessageText"]
+    assert "Faoliyat sohasi: —" in edits[0].text
 
 
 def test_question_answered_with_sources_and_logged(bot_db):

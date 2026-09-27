@@ -24,6 +24,7 @@ import asyncpg
 
 from app.retrieval.articles import SOLIQ_KODEKSI_LEX_ID, Article, get_article
 from app.retrieval.query import QueryPlan, analyze
+from app.retrieval.spelling import apply_fixes, suggest
 
 DEFAULT_LIMIT = 6
 # Modda savoldagi mazmunli so'zlarning kamida shuncha ulushini qamrashi kerak (aks holda tasodifiy moslik).
@@ -66,6 +67,7 @@ class SearchResult:
     hits: list[ArticleHit] = field(default_factory=list)
     direct_article: Article | None = None
     status: str = "ok"  # ok | not_found | needs_clarification | historical_unavailable
+    corrections: dict[str, str] = field(default_factory=dict)  # imlo tuzatishlari: {savoldagi: qidirilgan}
 
     @property
     def source_links(self) -> list[str]:
@@ -119,7 +121,14 @@ async def search_articles(
 
 async def retrieve(conn: asyncpg.Connection, question: str, today: date, *, limit: int = DEFAULT_LIMIT) -> SearchResult:
     plan = analyze(question, today)
-    result = SearchResult(plan=plan)
+    corrections: dict[str, str] = {}
+    if plan.article_number is None and plan.words:
+        corrections = await suggest(conn, plan.words)
+        if corrections:
+            language = plan.language
+            plan = analyze(apply_fixes(plan.normalized, corrections), today)
+            plan.question, plan.language = question, language
+    result = SearchResult(plan=plan, corrections=corrections)
 
     if plan.article_number is not None:
         lex_ids = plan.lex_ids or [SOLIQ_KODEKSI_LEX_ID]

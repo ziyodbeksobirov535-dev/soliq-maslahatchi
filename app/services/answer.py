@@ -7,7 +7,9 @@ Qat'iy qoidalar:
 - noaniq savol / tarixiy versiya yo'q / manba topilmadi → Claude chaqirilmaydi, xavfsiz javob;
 - havolalar faqat bazadan; model yozgan URL olib tashlanadi, noma'lum source_id rad etiladi;
 - iqtibossiz javob bir marta qayta so'raladi, baribir bo'lmasa — "ma'lumot yetarli emas";
-- needs_more halqasi ko'pi bilan 2 round (cheksiz halqa yo'q).
+- needs_more halqasi ko'pi bilan 2 round (cheksiz halqa yo'q);
+- Claude ishlamasa (kalit yo'q, kredit tugagan, API xatosi) — "faqat manbalar" javobi: topilgan eng yaqin
+  moddalar/bo'limlar, har biridan mos parcha va havola (`sources_only`). Foydalanuvchi bo'sh qaytmaydi.
 """
 
 from __future__ import annotations
@@ -43,6 +45,21 @@ CLARIFY_TEXT = (
     "Masalan: \"QQS to'lovchisi bo'lish chegarasi qancha?\" yoki \"Soliq kodeksi 461-modda\"."
 )
 ERROR_TEXT = "Kechirasiz, javob tayyorlashda texnik xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring."
+SOURCES_ONLY_TEXT = "Hozir to'liq javob tayyorlay olmadim, lekin savolingizga eng yaqin rasmiy manbalar:"
+SOURCES_ONLY_LIMIT = 3
+SNIPPET_CHARS = 300
+
+
+@dataclass(frozen=True)
+class SourceHint:
+    """Foydalanuvchiga ko'rsatiladigan manba: nomi, havolasi, mos parcha; tugma uchun birlik kaliti."""
+
+    lex_id: str
+    document_name: str
+    title: str
+    link: str
+    snippet: str
+    unit: tuple[str, str]  # ("m", "258") yoki ("b", "-8221820")
 
 
 @dataclass
@@ -56,6 +73,9 @@ class FinalAnswer:
     rounds: int = 0
     rejected_source_ids: list[str] = field(default_factory=list)
     removed_urls: list[str] = field(default_factory=list)
+    hints: list[SourceHint] = field(default_factory=list)  # sources_only: ko'rsatiladigan manbalar
+    corrections: dict[str, str] = field(default_factory=dict)  # imlo tuzatishlari
+    language: str = "uz"
     needs_more: list[str] = field(default_factory=list)
     search_queries: list[str] = field(default_factory=list)
     confidence: str | None = None
@@ -156,6 +176,46 @@ def format_insufficient(articles: list[SourceArticle], needs_more: list[str]) ->
     return "\n".join(lines)
 
 
+def _snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def hint_from_hit(h: ArticleHit) -> SourceHint:
+    """Qidiruv natijasi → ko'rsatiladigan manba; parcha — eng mos (sarlavha bo'lmagan) element."""
+    body = [m for m in h.matched if m.element_id != h.heading_element_id] or h.matched
+    title = h.heading if h.modda_raqami is not None else (h.birlik_nomi or h.heading)
+    return SourceHint(h.lex_id, h.document_name, title, h.heading_link, _snippet(body[0].text) if body else "",
+                      h.unit_key)
+
+
+def hint_from_article(a: Article) -> SourceHint:
+    unit = ("m", a.number) if a.number is not None else ("b", a.birlik or "")
+    title = a.heading.text if a.number is not None else (a.section_name or a.heading.text)
+    snippet = _snippet(a.body[0].text) if a.body else ""
+    return SourceHint(a.document_lex_id, a.document_name, title, a.link, snippet, unit)
+
+
+def format_sources_only(hints: list[SourceHint]) -> str:
+    lines = [SOURCES_ONLY_TEXT, ""]
+    for h in hints:
+        lines += [f"📌 {h.document_name}, {h.title}", *([h.snippet] if h.snippet else []), h.link, ""]
+    return "\n".join(lines).rstrip()
+
+
+def sources_only(result: SearchResult, queries: list[str]) -> dict:
+    """Claude'siz javob: topilgan eng yaqin manbalar (bo'lmasa — not_found). `done(**...)` uchun."""
+    if result.direct_article is not None:
+        hints = [hint_from_article(result.direct_article)]
+    else:
+        hints = [hint_from_hit(h) for h in result.hits[:SOURCES_ONLY_LIMIT]]
+    if not hints:
+        return dict(status="not_found", text=format_insufficient([], []), search_queries=queries)
+    return dict(status="sources_only", text=format_sources_only(hints), hints=hints, search_queries=queries)
+
+
 def format_historical(result: SearchResult) -> str:
     d = result.plan.historical_date
     when = {"year": f"{d.year}-yil", "month": f"{d.year}-yil {d.month}-oy"}.get(result.plan.historical_precision or "", d.isoformat())
@@ -179,7 +239,8 @@ async def answer_question(
     usage = Usage()
 
     def done(**kw) -> FinalAnswer:
-        fa = FinalAnswer(request_id=rid, usage=usage, **kw)
+        fa = FinalAnswer(request_id=rid, usage=usage, corrections=result.corrections,
+                         language=result.plan.language, **kw)
         fa.processing_ms = int((time.monotonic() - started) * 1000)
         log.info("answer status=%s rounds=%d sources=%d citations=%d rejected=%d ms=%d",
                  fa.status, fa.rounds, len(fa.source_articles), len(fa.citations),
@@ -245,8 +306,8 @@ async def answer_question(
                 continue
             break
     except LLMError as exc:
-        log.error("answer llm_error type=%s msg=%s", type(exc).__name__, exc)
-        return done(status="error", text=ERROR_TEXT, search_queries=queries)
+        log.error("answer llm_error type=%s msg=%s — manbalar ko'rsatiladi", type(exc).__name__, exc)
+        return done(**sources_only(result, queries))
 
     common = dict(
         source_articles=articles, rounds=rounds, rejected_source_ids=rejected, removed_urls=removed,
@@ -255,3 +316,21 @@ async def answer_question(
     if validated.needs_more or not validated.has_valid_citations:
         return done(status="insufficient", text=format_insufficient(articles, validated.needs_more), **common)
     return done(status="answered", text=format_answer(validated), citations=validated.citations, **common)
+
+
+async def answer_without_llm(conn: asyncpg.Connection, question: str, today: date, *,
+                             request_id: str | None = None) -> FinalAnswer:
+    """Claude sozlanmagan bo'lsa: qidiruv va "faqat manbalar" javobi (noaniq/tarixiy savol qoidalari o'sha)."""
+    started = time.monotonic()
+    result = await retrieve(conn, question, today, limit=MAX_SOURCES)
+    if result.status == "needs_clarification":
+        kw = dict(status="needs_clarification", text=CLARIFY_TEXT)
+    elif result.status == "historical_unavailable":
+        kw = dict(status="historical_unavailable", text=format_historical(result))
+    else:
+        kw = sources_only(result, [question])
+    fa = FinalAnswer(request_id=request_id or str(uuid.uuid4()), corrections=result.corrections,
+                     language=result.plan.language, **kw)
+    fa.processing_ms = int((time.monotonic() - started) * 1000)
+    log.info("answer (llm'siz) status=%s sources=%d ms=%d", fa.status, len(fa.hints), fa.processing_ms)
+    return fa

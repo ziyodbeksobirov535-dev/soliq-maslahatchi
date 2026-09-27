@@ -14,7 +14,8 @@ import pytest
 from app.collector.importer import import_document
 from app.database.connection import connect
 from app.retrieval.evaluation import CASES, SK
-from app.retrieval.query import analyze, normalize, stem, stem_variants
+from app.retrieval.query import analyze, is_russian, normalize, russian_to_uzbek, stem, stem_variants, transliterate
+from app.retrieval.spelling import apply_fixes, best_candidate, edit_distance
 from app.retrieval.search import retrieve
 from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, card, soliq_kodeksi
@@ -108,6 +109,79 @@ def test_prompt_injection_text_is_just_search_terms():
         assert re.fullmatch(r"[a-z0-9:*()&<\- >]+", part), part
 
 
+# --- kirill, rus tili, imlo (DB'siz) -------------------------------------------------------
+
+
+@pytest.mark.parametrize("cyr,lat", [
+    ("ҚҚС ставкаси қанча?", "qqs stavkasi qancha?"),
+    ("Ер солиғи", "yer soligi"),
+    ("Ўзбекистон Республикаси", "ozbekiston respublikasi"),
+    ("иерархия", "iyerarxiya"),
+    ("Лицензия", "litsenziya"),
+])
+def test_cyrillic_uzbek_is_transliterated(cyr, lat):
+    assert normalize(cyr) == lat
+
+
+def test_latin_text_is_unchanged_by_transliteration():
+    assert transliterate("QQS stavkasi") == "qqs stavkasi"
+
+
+def test_cyrillic_question_gives_same_plan_as_latin():
+    cyr = analyze("ҚҚС ставкаси қанча?", TODAY)
+    lat = analyze("QQS stavkasi qancha?", TODAY)
+    assert cyr.ts_terms == lat.ts_terms and cyr.language == "uz"
+
+
+def test_russian_keyboard_uzbek_question_words_are_stopwords():
+    plan = analyze("Ер солиги качон туланади", TODAY)  # қ → к, ў → у
+    assert "kachon" not in plan.terms and plan.language == "uz"
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("Какая ставка НДС?", True), ("Статья 461 налогового кодекса", True), ("Налог на прибыль", True),
+    ("ҚҚС ставкаси қанча?", False), ("Ер солиги качон туланади", False), ("QQS stavkasi", False),
+])
+def test_russian_detection(question, expected):
+    assert is_russian(question) is expected
+
+
+def test_russian_terms_are_mapped_and_rest_dropped():
+    assert russian_to_uzbek("Какая ставка НДС для ИП?") == "stavka qqs yakka tartibdagi tadbirkor"
+    assert russian_to_uzbek("Сроки сдачи отчета по налогу на прибыль") == "muddat hisobot soliq foyda"
+
+
+def test_russian_article_question_finds_tax_code_article():
+    plan = analyze("Статья 461 налогового кодекса", TODAY)
+    assert plan.language == "ru" and plan.article_number == "461" and plan.lex_ids == [SK]
+
+
+def test_russian_question_without_terms_needs_clarification():
+    plan = analyze("Как дела?", TODAY)
+    assert plan.language == "ru" and plan.needs_clarification
+
+
+@pytest.mark.parametrize("a,b,d", [
+    ("satvkasi", "stavkasi", 1), ("tulanadi", "tolanadi", 1), ("imtyoz", "imtiyoz", 1),
+    ("deklaratsya", "deklaratsiya", 1), ("abc", "abc", 0), ("sanasi", "satvkasi", 3),
+])
+def test_edit_distance(a, b, d):
+    assert edit_distance(a, b) == d
+
+
+def test_best_candidate_prefers_closest_then_frequent():
+    cands = [("sanasi", 334), ("stavkasi", 118), ("sutkasi", 1)]
+    assert best_candidate("satvkasi", cands) == "stavkasi"
+    assert best_candidate("imtyoz", [("imtiyoz", 33), ("imtiyozi", 13)]) == "imtiyoz"
+    assert best_candidate("qwerty", [("stavkasi", 118)]) is None  # juda uzoq — tuzatilmaydi
+    assert best_candidate("tolanadi", [("tolanadi", 180)]) is None  # o'zi
+
+
+def test_apply_fixes_whole_words_only():
+    assert apply_fixes("qqs satvkasi qancha", {"satvkasi": "stavkasi"}) == "qqs stavkasi qancha"
+    assert apply_fixes("satvkasilar", {"satvkasi": "stavkasi"}) == "satvkasilar"
+
+
 def test_eval_set_has_ten_questions():
     assert len(CASES) >= 10
     assert all(c.expected_status == "ok" or not c.expected for c in CASES)
@@ -123,6 +197,7 @@ def sk_db(db):
         try:
             await conn.execute("DELETE FROM hujjatlar")
             await import_document(conn, soliq_kodeksi(), card("card1-soliq-kodeksi.html", SK_ID), TODAY)
+            await conn.execute("SELECT yangila_sozlar()")  # imlo tuzatish lug'ati
         finally:
             await conn.close()
 
@@ -213,6 +288,27 @@ def test_non_current_documents_are_excluded(sk_db):
             await conn.close()
 
     assert run(scenario()).status == "not_found"
+
+
+def test_typo_is_corrected_with_vocabulary(sk_db):
+    typo = _retrieve(sk_db, "Qqs satvkasi qancha")
+    correct = _retrieve(sk_db, "Qqs stavkasi qancha")
+    assert typo.corrections == {"satvkasi": "stavkasi"}
+    assert [h.modda_raqami for h in typo.hits] == [h.modda_raqami for h in correct.hits]
+    assert typo.plan.question == "Qqs satvkasi qancha"
+
+
+def test_correct_words_are_not_changed(sk_db):
+    for case in SK_CASES:
+        assert _retrieve(sk_db, case.question).corrections == {}, case.question
+
+
+def test_cyrillic_and_russian_questions_find_same_article(sk_db):
+    latin = _retrieve(sk_db, "QQS stavkasi qancha?")
+    cyr = _retrieve(sk_db, "ҚҚС ставкаси қанча?")
+    ru = _retrieve(sk_db, "Какая ставка НДС?")
+    assert latin.hits and cyr.hits[0].modda_raqami == latin.hits[0].modda_raqami
+    assert ru.plan.language == "ru" and ru.hits[0].modda_raqami == latin.hits[0].modda_raqami
 
 
 def test_injection_question_does_not_break_search(sk_db):
