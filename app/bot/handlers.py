@@ -42,6 +42,7 @@ from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import normalize
 from app.services.answer import answer_question, answer_without_llm
+from app.services.xabarlar import decide
 from app.services.users import (
     PROFILE_FIELDS,
     collect_stats,
@@ -289,6 +290,19 @@ async def on_rate(query: CallbackQuery, pool: asyncpg.Pool) -> None:
         await query.message.edit_reply_markup(reply_markup=without_rating(query.message.reply_markup))
 
 
+async def on_xabar_decision(query: CallbackQuery, pool: asyncpg.Pool, settings: Settings) -> None:
+    """Admin: yangilik/o'zgarish xabarini tasdiqlash (x:ok:<id>) yoki bekor qilish (x:no:<id>)."""
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[1] not in ("ok", "no") or not parts[2].isdigit():
+        await query.answer()  # "x:-" — hal qilingan ko'rinishdagi holat tugmasi
+        return
+    if not settings.is_admin(query.from_user.id):
+        await query.answer("Faqat adminlar uchun", show_alert=True)
+        return
+    result = await decide(query.bot, pool, settings, int(parts[2]), query.from_user.id, parts[1] == "ok")
+    await query.answer(result)
+
+
 # --- /stat, /yangiliklar ----------------------------------------------------------------
 
 
@@ -393,5 +407,6 @@ def create_router() -> Router:
     router.callback_query(F.data.startswith("v:"))(on_view_source)
     router.callback_query(F.data.startswith("r:"))(on_rate)
     router.callback_query(F.data.startswith("p:"))(on_profile_button)
+    router.callback_query(F.data.startswith("x:"))(on_xabar_decision)
     router.errors()(on_error)
     return router

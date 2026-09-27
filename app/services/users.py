@@ -44,7 +44,7 @@ async def ensure_user(conn: asyncpg.Connection, telegram_id: int) -> User:
     row = await conn.fetchrow(
         """
         INSERT INTO foydalanuvchilar (telegram_id) VALUES ($1)
-        ON CONFLICT (telegram_id) DO UPDATE SET telegram_id = EXCLUDED.telegram_id
+        ON CONFLICT (telegram_id) DO UPDATE SET bloklagan = false  -- yana yozdi — bot bloklanmagan
         RETURNING telegram_id, language, daily_limit, active, profile
         """,
         telegram_id,

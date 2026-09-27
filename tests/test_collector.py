@@ -464,17 +464,21 @@ def test_format_news_active_document_has_no_status_line():
 
 
 def test_scheduler_jobs():
-    scheduler = build_scheduler(pool=None, settings=Settings(_env_file=None), llm=None)
+    scheduler = build_scheduler(pool=None, settings=Settings(_env_file=None), llm=None, bot=object())
     jobs = {j.id: j for j in scheduler.get_jobs()}
-    assert set(jobs) == {"rss", "future_recheck", "weekly_refresh", "discover", "import_found", "heartbeat"}
+    assert set(jobs) == {"rss", "future_recheck", "weekly_refresh", "discover", "import_found", "heartbeat",
+                         "publish"}
 
     def cron(job_id):
         return {f.name: str(f) for f in jobs[job_id].trigger.fields if not f.is_default}
 
-    assert cron("rss") == {"hour": "7", "minute": "10"}
+    assert cron("rss") == {"hour": "7,12,17", "minute": "10"}
     assert cron("future_recheck") == {"hour": "7", "minute": "40"}
     assert cron("weekly_refresh") == {"day_of_week": "sun", "hour": "3", "minute": "20"}
     assert cron("discover") == {"day_of_week": "sat", "hour": "4", "minute": "10"}
     assert cron("import_found") == {"hour": "8", "minute": "10"}
     assert jobs["heartbeat"].trigger.interval.total_seconds() == 300
+    assert jobs["publish"].trigger.interval.total_seconds() == 900
+    no_bot = build_scheduler(pool=None, settings=Settings(_env_file=None), llm=None)
+    assert "publish" not in {j.id for j in no_bot.get_jobs()}  # CLI: bot yo'q — xabar yuborilmaydi
     assert str(jobs["rss"].trigger.timezone) == "Asia/Tashkent"

@@ -31,6 +31,18 @@ class QueryRewrite(BaseModel):
     )
 
 
+class DigestPoint(BaseModel):
+    matn: str = Field(description="Hujjatdagi bitta muhim qoida, oddiy tilda, 1 gap")
+    source_id: str = Field(description="Shu qoida olingan <element id=...> qiymati, masalan EL-123")
+
+
+class NewsDigest(BaseModel):
+    sarlavha: str = Field(description="Yangilik sarlavhasi, oddiy tilda, 90 belgigacha; baho va bo'rttirishsiz")
+    mohiyat: str = Field(description="1-2 gap: hujjat nima qiladi va kimga tegishli, faqat matndan")
+    bandlar: list[DigestPoint] = Field(description="2-4 ta eng muhim qoida, har biri manba elementi bilan")
+    kimga: list[str] = Field(description="Kimga tegishli: 1-4 ta qisqa guruh (masalan: YaTT, qurilish korxonalari)")
+
+
 class NewsClassification(BaseModel):
     relevant: bool = Field(description="Soliq, buxgalteriya, tadbirkorlik, mehnat yoki bojxona uchun ahamiyatlimi")
     topics: list[str] = Field(description="1-3 ta mavzu: soliq, buxgalteriya, mehnat, bojxona, tadbirkorlik, boshqa")

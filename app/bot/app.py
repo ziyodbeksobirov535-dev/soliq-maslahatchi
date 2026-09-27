@@ -48,7 +48,7 @@ async def run_bot(settings: Settings) -> None:
         llm = make_llm(settings)
         dp = build_dispatcher(pool, settings, llm)
         await bot.set_my_commands(COMMANDS)
-        scheduler = build_scheduler(pool, settings, llm)
+        scheduler = build_scheduler(pool, settings, llm, bot)
         scheduler.start()
         write_heartbeat()
         log.info("bot started, scheduler jobs=%s", [j.id for j in scheduler.get_jobs()])

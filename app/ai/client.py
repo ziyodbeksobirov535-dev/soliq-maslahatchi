@@ -18,13 +18,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.ai.prompts import (
+    NEWS_DIGEST_PROMPT,
     NEWS_SYSTEM_PROMPT,
     REWRITE_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    render_digest_message,
     render_news_message,
     render_rewrite_message,
 )
-from app.ai.schemas import AnswerOutput, NewsClassification, QueryRewrite
+from app.ai.schemas import AnswerOutput, NewsClassification, NewsDigest, QueryRewrite
 from app.config import Settings
 
 log = logging.getLogger(__name__)
@@ -144,4 +146,11 @@ class ClaudeLLM:
         return self._parse(
             model=self.fast_model, system=NEWS_SYSTEM_PROMPT, user=render_news_message(title, meta, excerpt),
             output_format=NewsClassification, max_tokens=1024, fallback=False, effort=None, usage=usage,
+        )
+
+    def news_digest(self, title: str, meta: str, elements: list[tuple[str, str]], usage: Usage) -> NewsDigest:
+        """Fast model: hujjatdan yangilik xabari (bandlar manba elementiga bog'langan, backend tekshiradi)."""
+        return self._parse(
+            model=self.fast_model, system=NEWS_DIGEST_PROMPT, user=render_digest_message(title, meta, elements),
+            output_format=NewsDigest, max_tokens=2048, fallback=False, effort=None, usage=usage,
         )

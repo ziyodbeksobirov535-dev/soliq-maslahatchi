@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     lexuz_cache_ttl_hours: float = Field(default=24.0, ge=0)
     # Qidiruvda topilgan eski hujjatlardan kuniga nechtasi import qilinadi (0 = o'chiq; ro'yxat baribir yig'iladi).
     discovery_daily_limit: int = Field(default=0, ge=0)
+    # Yangilik/o'zgarish xabarlari faqat shu soatlar oralig'ida (mahalliy vaqt) yuboriladi: [start, end).
+    news_send_start_hour: int = Field(default=9, ge=0, le=23)
+    news_send_end_hour: int = Field(default=20, ge=1, le=24)
+    # Shundan eski RSS yangiliklari uchun xabar tayyorlanmaydi.
+    news_max_age_days: int = Field(default=3, ge=1)
 
     log_level: str = "INFO"
 

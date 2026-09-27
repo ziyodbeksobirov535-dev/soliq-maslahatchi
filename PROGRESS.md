@@ -376,3 +376,22 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
   ketmaydi.
 - Tahlil: Claude bilan — bandlar hujjat elementlariga bog'lanadi va tekshiriladi; Claude'siz — metadata +
   hujjatning birinchi bandlari.
+- Qabul qiluvchilar: `/start` bosgan hamma foydalanuvchi (obuna keyinchalik pullik bo'ladi — hozir emas).
+- Soliq kodeksi va boshqa kuzatiladigan hujjatlardagi o'zgarishlar ham xabar bo'ladi — admin tasdig'i bilan.
+- Keyinchalik kanalga ham yuborish (hozir emas).
+
+### B bosqich ✅ kod va testlar (2026-09-28; Supabase'ga 011 hali qo'llanmagan)
+- [x] `migrations/011_xabarlar.sql`: `xabarlar` (turi, kalit UNIQUE, matn, havola, tugmalar, usul, holat:
+      kutilmoqda → tasdiqlandi/bekor → yuborildi, admin ko'rinishlari), `xabar_yuborishlar` (PK xabar+foydalanuvchi),
+      `foydalanuvchilar.bloklagan`, `ozgarishlar.xabar_id`.
+- [x] `app/services/xabarlar.py`: yangilik xabari (Claude bilan — oddiy tildagi sarlavha, bandlar elementga
+      bog'langan va tekshirilgan, uydirma band tashlanadi; Claude'siz — hujjatning birinchi raqamli bandlari,
+      kalit so'zlardan soha), o'zgarish xabari (moddalar bo'yicha, hujjat tartibida, "📖 N-modda" tugmalari),
+      adminga ko'rinish [✅ Yuborish] [❌ Bekor qilish] — birinchi qaror kuchda, ko'rinishdagi tugma holatga
+      almashadi ("✅ Yuborildi: N ta foydalanuvchiga"). Yuborish faqat `NEWS_SEND_START_HOUR..END_HOUR`
+      (sukut 09–20) — tunda tasdiqlangani ertalab; ~20 xabar/s, RetryAfter, bloklagan → belgilanadi,
+      yana yozsa — belgi olinadi; qayta ishga tushishda hech kimga ikki marta ketmaydi.
+- [x] Scheduler: `publish` har 15 daqiqa (faqat kunduzi): tayyorlash → adminlarga ko'rinish → yuborish;
+      RSS kuniga 3 marta (07:10, 12:10, 17:10).
+- Testlar: `tests/test_xabarlar.py` (13 ta, soxta Telegram bot); jami 345 passed.
+- [ ] Supabase'ga 011 (ruxsat bilan), bot qayta ishga tushirish, jonli sinov (RSS'ni bir marta ishga tushirish).
