@@ -192,7 +192,7 @@ def test_stat_admin_only(bot_db):
 def test_unknown_command_and_news(bot_db):
     s = feed(bot_db, ["/nimadir", "/yangiliklar"])
     assert "Noma'lum buyruq" in s.sent[0].text
-    assert "tayyorlanmoqda" in s.sent[1].text
+    assert "yangi hujjat topilmadi" in s.sent[1].text  # test bazasida yangilik yo'q
 
 
 # --- oddiy savol -------------------------------------------------------------------------

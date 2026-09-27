@@ -17,8 +17,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.ai.prompts import REWRITE_SYSTEM_PROMPT, SYSTEM_PROMPT, render_rewrite_message
-from app.ai.schemas import AnswerOutput, QueryRewrite
+from app.ai.prompts import (
+    NEWS_SYSTEM_PROMPT,
+    REWRITE_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    render_news_message,
+    render_rewrite_message,
+)
+from app.ai.schemas import AnswerOutput, NewsClassification, QueryRewrite
 from app.config import Settings
 
 log = logging.getLogger(__name__)
@@ -131,4 +137,11 @@ class ClaudeLLM:
         return self._parse(
             model=self.main_model, system=SYSTEM_PROMPT, user=user_message, output_format=AnswerOutput,
             max_tokens=self.max_tokens, fallback=self.fallback, effort=self.effort, usage=usage,
+        )
+
+    def classify_news(self, title: str, meta: str, excerpt: str, usage: Usage) -> NewsClassification:
+        """Fast model: yangilik relevantligi va qisqa faktik xulosa (spec 17: faqat relevance classification)."""
+        return self._parse(
+            model=self.fast_model, system=NEWS_SYSTEM_PROMPT, user=render_news_message(title, meta, excerpt),
+            output_format=NewsClassification, max_tokens=1024, fallback=False, effort=None, usage=usage,
         )

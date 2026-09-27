@@ -109,3 +109,23 @@ def format_article(article: Article, max_chars: int = 12000) -> str:
     if article.has_future_changes:
         tail = ["", "⚠️ Bu moddaga kelajakda kuchga kiradigan o'zgarishlar bor — Lex.uzdagi tahrirni tekshiring."]
     return "\n".join(head + [""] + body + tail + ["", f"Manba: {link(article.link, 'Lex.uz')}"])
+
+
+def format_news(entries) -> str:
+    """/yangiliklar: oxirgi 7 kun, soliq/biznesga oid; metadata + qisqa faktik xulosa + Lex.uz havolasi."""
+    lines = ["<b>Qonunchilikdagi yangiliklar (so'nggi 7 kun)</b>", ""]
+    for e in entries:
+        meta = ", ".join(p for p in [
+            e.doc_type or "", f"№{e.number}" if e.number else "",
+            f"qabul qilingan {e.adoption_date:%d.%m.%Y}" if e.adoption_date else "",
+            f"kuchga kirish {e.effective_date:%d.%m.%Y}" if e.effective_date else "",
+        ] if p)
+        lines.append(f"• {link(e.url, e.title)}")
+        if meta:
+            lines.append(f"  {esc(meta)}")
+        if e.status and e.status != "amalda":
+            lines.append(f"  Holati: {esc(STATUS_UZ.get(e.status, e.status))}")
+        if e.summary:
+            lines.append(f"  {esc(e.summary)}")
+        lines.append("")
+    return "\n".join(lines).rstrip()

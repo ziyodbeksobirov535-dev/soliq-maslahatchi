@@ -814,3 +814,68 @@ def today_tashkent() -> date:
     from zoneinfo import ZoneInfo
 
     return datetime.now(ZoneInfo("Asia/Tashkent")).date()
+
+
+# --- RSS -------------------------------------------------------------------------
+
+RSS_URL = f"{BASE_URL}/uz/rss"
+_RSS_DOC_RE = re.compile(r"/docs/(-?\d+)")
+_RSS_NUMBER_RE = re.compile(r"№\s*([^\s.]+(?:\.[^\s.]+)*)")
+
+
+@dataclass(frozen=True)
+class RssItem:
+    lex_id: str
+    title: str
+    url: str  # canonical: https://lex.uz/docs/<id>
+    description: str
+    doc_type: str | None
+    number: str | None
+    adoption_date: date | None
+    effective_date: date | None
+    pub_date: datetime | None
+
+
+def _rss_description_fields(desc: str) -> tuple[str | None, str | None, date | None, date | None]:
+    """"Oʻzbekiston Respublikasi Prezidentining Farmoni №PF-206. Qabul qilingan sana 23.09.2026. Kuchga kirish sanasi 25.09.2026"."""
+    doc_type = desc.split("№")[0].strip(" .") or None if "№" in desc else (desc.split(".")[0].strip() or None)
+    m = _RSS_NUMBER_RE.search(desc)
+    number = m.group(1).rstrip(".") if m else None
+    adoption = _parse_date(desc.split("Qabul qilingan sana", 1)[1]) if "Qabul qilingan sana" in desc else None
+    effective = _parse_date(desc.split("Kuchga kirish sanasi", 1)[1]) if "Kuchga kirish sanasi" in desc else None
+    return doc_type, number, adoption, effective
+
+
+def parse_rss(xml_text: str) -> list[RssItem]:
+    """Lex.uz RSS (https://lex.uz/uz/rss). Tashqi entity/DTD yuklanmaydi."""
+    from email.utils import parsedate_to_datetime
+
+    from lxml import etree
+
+    if not xml_text or not xml_text.strip():
+        raise LexUzError("Bo'sh RSS")
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, recover=False)
+    try:
+        root = etree.fromstring(xml_text.lstrip("﻿").encode("utf-8"), parser)
+    except etree.XMLSyntaxError as exc:
+        raise LexUzError(f"RSS XML xatosi: {exc}") from exc
+    items: list[RssItem] = []
+    for it in root.iter("item"):
+        link = (it.findtext("link") or it.findtext("guid") or "").strip()
+        m = _RSS_DOC_RE.search(link)
+        if not m:
+            continue
+        lex_id = m.group(1)
+        desc = _clean(it.findtext("description") or "")
+        doc_type, number, adoption, effective = _rss_description_fields(desc)
+        pub = None
+        if it.findtext("pubDate"):
+            try:
+                pub = parsedate_to_datetime(it.findtext("pubDate").strip())
+            except (TypeError, ValueError):
+                pub = None
+        items.append(RssItem(
+            lex_id=lex_id, title=_clean(it.findtext("title") or ""), url=doc_url(lex_id), description=desc,
+            doc_type=doc_type, number=number, adoption_date=adoption, effective_date=effective, pub_date=pub,
+        ))
+    return items

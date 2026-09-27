@@ -11,6 +11,7 @@ from app.ai.client import ClaudeLLM
 from app.bot.handlers import create_router
 from app.config import Settings
 from app.database.connection import create_pool
+from app.scheduler.scheduler import build_scheduler
 
 log = logging.getLogger(__name__)
 
@@ -43,10 +44,16 @@ async def run_bot(settings: Settings) -> None:
     pool = await create_pool(settings.supabase_db_url.get_secret_value())
     bot = Bot(settings.telegram_bot_token.get_secret_value())
     try:
-        dp = build_dispatcher(pool, settings, make_llm(settings))
+        llm = make_llm(settings)
+        dp = build_dispatcher(pool, settings, llm)
         await bot.set_my_commands(COMMANDS)
-        log.info("bot started")
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        scheduler = build_scheduler(pool, settings, llm)
+        scheduler.start()
+        log.info("bot started, scheduler jobs=%s", [j.id for j in scheduler.get_jobs()])
+        try:
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        finally:
+            scheduler.shutdown(wait=False)
     finally:
         await bot.session.close()
         await pool.close()

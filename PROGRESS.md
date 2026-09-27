@@ -157,7 +157,7 @@ xatolar ierarxiyasi. SDK 1.x `httpx2` ustida — testlarda client soxta obyekt b
       `SUPABASE_DB_URL=postgresql://postgres@127.0.0.1:5433/soliq_replica python -m app.ai.console`
       (natija `docs/phase4_console_report.md` ga yoziladi). Kalit repoga yozilmaydi — faqat muhit o'zgaruvchisi.
 
-## PHASE 5 — Telegram bot ✅ kod va testlar (jonli Telegram sinovi token kutmoqda)
+## PHASE 5 — Telegram bot ✅ kod va testlar (tasdiqlandi; jonli Telegram sinovi token kutmoqda)
 
 ### Bajarildi
 - [x] `app/bot/handlers.py` — /start (ro'yxatga olish), /profil (soha/rejim/shakl, kunlik limit), /modda N [hujjat]
@@ -175,3 +175,24 @@ xatolar ierarxiyasi. SDK 1.x `httpx2` ustida — testlarda client soxta obyekt b
 ### Kutilmoqda
 - [ ] Jonli Telegram sinovi: `TELEGRAM_BOT_TOKEN` (@BotFather) kerak. Doimiy ishlashi — PHASE 7 (server).
 - [ ] Jonli savol-javob — Anthropic krediti (loyiha oxirida to'ldiriladi).
+
+## PHASE 6 — Collector: RSS, relevantlik, kunlik yangilanish, /yangiliklar ✅ kod (testlar keyinroq)
+
+Foydalanuvchi so'rovi bo'yicha testlar bu bosqichda ishga tushirilmadi (token tejash) — loyiha oxirida boshqa model
+bilan to'liq test o'tkaziladi. Faqat `py_compile`/import tekshiruvi va RSS fixture'da parser tekshirildi (131 element).
+
+### Bajarildi
+- [x] `migrations/007_yangiliklar.sql` — yangiliklar jadvali (Supabase'ga qo'llangan)
+- [x] `lexuz.parse_rss` — Lex.uz RSS: nom, lex_id, turi, raqami, qabul/kuchga kirish sanalari (xavfsiz XML parser)
+- [x] `app/collector/news.py` — SOLIQ_SOZLARI filtri → fast model (bo'lsa) relevantlik + faktik xulosa →
+      relevant hujjatni to'liq yuklash va `import_document`; kreditsiz rejimda faqat keyword; bir run'da ≤20 import
+- [x] `app/collector/jobs.py` — rss / future (kuchga kirish sanasi kelgan hujjatlar) / refresh (asosiy hujjatlar,
+      o'zgarishlar `ozgarishlar` ga); CLI: `python -m app.collector.jobs rss|future|refresh`
+- [x] `app/scheduler/scheduler.py` — APScheduler, Asia/Tashkent: RSS 07:10, future 07:40, refresh yakshanba 03:20;
+      botga ulangan (`python main.py`), job xatosi bot/scheduler'ni yiqitmaydi
+- [x] `/yangiliklar` — oxirgi 7 kun, relevant; metadata, holat, xulosa, Lex.uz havolasi
+
+### Test qilinishi kerak (oxirida)
+- [ ] parse_rss fixture testlari, keyword filtri, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
+      scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007)
+- [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)

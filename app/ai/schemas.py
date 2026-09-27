@@ -29,3 +29,9 @@ class QueryRewrite(BaseModel):
     queries: list[str] = Field(
         description="2-4 ta qisqa qidiruv so'rovi, O'zbekiston qonunchiligidagi rasmiy atamalar bilan (lotin, o'zbekcha)"
     )
+
+
+class NewsClassification(BaseModel):
+    relevant: bool = Field(description="Soliq, buxgalteriya, tadbirkorlik, mehnat yoki bojxona uchun ahamiyatlimi")
+    topics: list[str] = Field(description="1-3 ta mavzu: soliq, buxgalteriya, mehnat, bojxona, tadbirkorlik, boshqa")
+    summary: str = Field(description="1-2 gaplik faktik xulosa, faqat berilgan matndan; baho va taxminsiz")

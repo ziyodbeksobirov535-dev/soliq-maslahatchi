@@ -19,7 +19,8 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import ErrorEvent, LinkPreviewOptions, Message
 
 from app.ai.client import LLM
-from app.bot.formatting import esc, format_article, format_final_answer, split_message
+from app.bot.formatting import esc, format_article, format_final_answer, format_news, split_message
+from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, normalize_article_number
 from app.services.answer import answer_question
@@ -149,8 +150,13 @@ async def cmd_stat(message: Message, pool: asyncpg.Pool, settings: Settings) -> 
     await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
-async def cmd_news(message: Message) -> None:
-    await message.answer("Qonunchilik yangiliklari bo'limi tayyorlanmoqda (keyingi bosqich).")
+async def cmd_news(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    async with pool.acquire() as conn:
+        entries = await recent_news(conn, datetime.now(settings.tz).date())
+    if not entries:
+        await message.answer("So'nggi 7 kunda soliq va biznesga oid yangi hujjat topilmadi.")
+        return
+    await send_long(message, format_news(entries))
 
 
 async def cmd_unknown(message: Message) -> None:
