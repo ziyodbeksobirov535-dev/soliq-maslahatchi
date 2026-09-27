@@ -98,7 +98,7 @@ To'ldiriladigan qiymatlar (qo'shtirnoqsiz, bo'sh joysiz yozing):
 | `SUPABASE_SERVICE_ROLE_KEY` | Bot uchun **kerak emas** — bo'sh qoldiring |
 | `ADMIN_TELEGRAM_IDS` | Sizning Telegram ID raqamingiz (**@userinfobot** ga yozing). Bir nechta bo'lsa vergul bilan |
 | `DAILY_QUESTION_LIMIT` | Kunlik savol limiti (sukut 20) |
-| `DISCOVERY_DAILY_LIMIT` | Lex.uz qidiruvida topilgan eski hujjatlardan kuniga nechtasi import qilinadi (sukut 0 = o'chiq) |
+| `DISCOVERY_DAILY_LIMIT` | Lex.uz qidiruvida topilgan eski hujjatlardan kuniga nechtasi import qilinadi (`.env.example` da 50 — ~20 kunda ~1 000 hujjat, bazaga ~180 MB; 0 = o'chiq) |
 
 Secret'larni hech qachon chatga, git'ga yoki skrinshotga qo'ymang. `.env` `.gitignore` da.
 

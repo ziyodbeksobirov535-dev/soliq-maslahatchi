@@ -253,8 +253,20 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
       Soxta LLM bilan to'liq zanjir: bo'limdan iqtibos validatsiyadan o'tdi, havola bandga (`#-8221820`).
 - Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `test_database` dagi migratsiya ro'yxati 009 bilan yangilandi.
 
-### Keyingi qadam (tasdiq kerak)
-- [ ] `DISCOVERY_DAILY_LIMIT=50` (≈20 kun, kuniga ~2 daqiqa) va Supabase'ga 008–009 migratsiyalari.
+### Kunlik import yoqildi, Supabase (2026-09-27, foydalanuvchi tasdig'i bilan)
+- [x] `DISCOVERY_DAILY_LIMIT=50` — `.env.example` va lokal `.env`; har kuni 08:10.
+- [x] Lokal birinchi partiya: 50 hujjat 2m30s, xato 0; baza +5 MB (~100 KB/hujjat → 986 ta ≈ 100 MB, avvalgi
+      180 MB bahosidan kam). Bo'limlar import paytida avtomatik (`finish_import` → `hisobla_birliklar`).
+      Navbatda 926 ta. Ikkala baholash o'zgarmadi (spec 10 savol: 6/8, 6/8, 8/8; yangi qarorlar: 7/8).
+- [x] Supabase: 001–007 checksum'lari lokal fayllar bilan mos. **008 qo'llandi** (`apply_migration` +
+      `schema_migrations` checksum `525cd752…`); jadval bor, RLS yoqilgan, baza 63 MB; security advisor — faqat
+      ataylab qoldirilgan `rls_enabled_no_policy` (INFO).
+- [ ] **Supabase'ga 009 qo'llanmadi** — sessiyadagi avtomatik ruxsat tekshiruvi production'ga migratsiya faylini
+      o'qishni to'xtatdi. Qo'llash: foydalanuvchi ruxsat beradi yoki serverda
+      `.venv/bin/python -m app.database.migrate` (DEPLOYMENT.md 9-qadam) — runner 009 ni o'zi qo'llaydi.
+      009 siz yangi kod qidiruvda `birlik` ustunini topmaydi, shuning uchun serverga kod 009 bilan birga chiqishi kerak.
+
+### Keyingi qadam
 - [ ] "yuk tashuvchi" ↔ "yuk tashuvlarini" — so'z o'zagi mos kelmaydi (`query.stem`), qaror topilmadi (8 dan 1).
 - [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
 
