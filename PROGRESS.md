@@ -275,10 +275,17 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
 - [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
 
 ### Test qilinishi kerak (oxirida)
-- [ ] parse_search (4 fixture: badge, holat, jami, postback, bo'sh), search sahifalash (soxta client), discovery
-      upsert/import_pending, hisobla_birliklar (bob/ilova/bo'laklash), search_articles bo'lim natijasi,
-      get_section, <bolim> konteksti, parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
-      scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007, 008)
+- [x] Bazasiz testlar (2026-09-27, MacBook, Python 3.12): `tests/test_collector.py` — 41 ta: parse_search
+      (4 fixture: badge ikki turi, holat y/r, jami, postback, bo'sh), search_url, search sahifalash (soxta client:
+      postback, takror sahifa himoyasi, max_pages), parse_rss (131 element, maydonlar, XXE yo'q), keyword filtri
+      (27/48/56, so'z boshi), discovery (so'rovlarni birlashtirish, xato izolyatsiyasi, relevantlik, import_pending),
+      process_rss (kalitsiz / soxta LLM / LLM xatosi), format_news, scheduler job'lari. Jami: 165 passed,
+      100 skipped (DB).
+- [x] Testlar topgan xato tuzatildi: RSS'dagi idoraviy hujjatlar ("...buyrugʻi рег. № МЮ 3941", 131 dan 23 ta)
+      raqami `МЮ`, turi "... рег" bo'lib qolardi → endi raqam `3941`, turdan "рег" olib tashlanadi.
+- [ ] DB talab qiladi (lokal Postgres / TEST_DATABASE_URL): hisobla_birliklar (bob/ilova/bo'laklash),
+      search_articles bo'lim natijasi, get_section, <bolim> konteksti, discovery upsert SQL, tracked_documents,
+      recent_news, test_bot (/yangiliklar), test_database (007, 008, 009)
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 
 ## PHASE 7 — Production deployment ✅ kod va qo'llanma (testlar keyinroq)

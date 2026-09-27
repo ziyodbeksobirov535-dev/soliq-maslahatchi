@@ -828,7 +828,10 @@ def today_tashkent() -> date:
 
 RSS_URL = f"{BASE_URL}/uz/rss"
 _RSS_DOC_RE = re.compile(r"/docs/(-?\d+)")
-_RSS_NUMBER_RE = re.compile(r"№\s*([^\s.]+(?:\.[^\s.]+)*)")
+# Idoraviy hujjatlarda raqam o'rnida Adliya vazirligi ro'yxat raqami: "...buyrugʻi рег. № МЮ 3941."
+# (2026-09-27 RSS'da 131 dan 23 tasi) — raqam "3941", tur oxiridagi "рег" olib tashlanadi.
+_RSS_NUMBER_RE = re.compile(r"№\s*(?:МЮ\s+)?([^\s.]+(?:\.[^\s.]+)*)")
+_RSS_REG_SUFFIX_RE = re.compile(r"\s+рег$")
 
 
 @dataclass(frozen=True)
@@ -847,6 +850,7 @@ class RssItem:
 def _rss_description_fields(desc: str) -> tuple[str | None, str | None, date | None, date | None]:
     """"Oʻzbekiston Respublikasi Prezidentining Farmoni №PF-206. Qabul qilingan sana 23.09.2026. Kuchga kirish sanasi 25.09.2026"."""
     doc_type = desc.split("№")[0].strip(" .") or None if "№" in desc else (desc.split(".")[0].strip() or None)
+    doc_type = _RSS_REG_SUFFIX_RE.sub("", doc_type) if doc_type else None
     m = _RSS_NUMBER_RE.search(desc)
     number = m.group(1).rstrip(".") if m else None
     adoption = _parse_date(desc.split("Qabul qilingan sana", 1)[1]) if "Qabul qilingan sana" in desc else None
