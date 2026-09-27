@@ -300,9 +300,17 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
       100 skipped (DB).
 - [x] Testlar topgan xato tuzatildi: RSS'dagi idoraviy hujjatlar ("...buyrugʻi рег. № МЮ 3941", 131 dan 23 ta)
       raqami `МЮ`, turi "... рег" bo'lib qolardi → endi raqam `3941`, turdan "рег" olib tashlanadi.
-- [ ] DB talab qiladi (lokal Postgres / TEST_DATABASE_URL): hisobla_birliklar (bob/ilova/bo'laklash),
-      search_articles bo'lim natijasi, get_section, <bolim> konteksti, discovery upsert SQL, tracked_documents,
-      recent_news, test_bot (/yangiliklar), test_database (007, 008, 009)
+- [x] DB testlari (2026-09-28, MacBook, foydalanuvchi ruxsati bilan lokal PostgreSQL 17 — faqat testlar uchun,
+      Supabase ma'lumotlarisiz). `tests/test_sections.py` — 11 ta: hisobla_birliklar (asosiy qism, bob sarlavhasi,
+      izoh/imzo/"1-ILOVA"/matnsiz bob kirmaydi, ilova nomi, 4 000+ band bo'yicha va 8 000+ o'lcham bo'yicha
+      bo'laklash, moddalar NULL, idempotent, qayta importda qayta hisob), search_articles bo'lim + modda natijasi,
+      get_section, `<bolim>` konteksti, discovery upsert (so'rovlar birlashadi), import_pending (tartib, xato
+      urinishi), tracked_documents (kuchini yo'qotgan chiqmaydi), recent_news (7 kun, relevant, holat).
+      test_database 007–009 va test_bot /yangiliklar allaqachon bor edi. **Jami: 292 passed, 0 skipped.**
+      Mac'da test bazasini ishga tushirish (fon xizmati emas):
+      `LC_ALL=en_US.UTF-8 /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /opt/homebrew/var/postgresql@17 -o "-p 5433 -c listen_addresses=127.0.0.1" -l /opt/homebrew/var/postgresql@17/test-server.log start`,
+      so'ng `TEST_DATABASE_URL=postgresql://macbook@127.0.0.1:5433/postgres .venv/bin/python -m pytest`
+      (to'xtatish: `... pg_ctl -D /opt/homebrew/var/postgresql@17 stop`).
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 
 ## PHASE 7 — Production deployment ✅ kod va qo'llanma (testlar keyinroq)
