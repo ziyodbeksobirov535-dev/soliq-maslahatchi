@@ -261,10 +261,14 @@ Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqar
 - [x] Supabase: 001–007 checksum'lari lokal fayllar bilan mos. **008 qo'llandi** (`apply_migration` +
       `schema_migrations` checksum `525cd752…`); jadval bor, RLS yoqilgan, baza 63 MB; security advisor — faqat
       ataylab qoldirilgan `rls_enabled_no_policy` (INFO).
-- [ ] **Supabase'ga 009 qo'llanmadi** — sessiyadagi avtomatik ruxsat tekshiruvi production'ga migratsiya faylini
-      o'qishni to'xtatdi. Qo'llash: foydalanuvchi ruxsat beradi yoki serverda
-      `.venv/bin/python -m app.database.migrate` (DEPLOYMENT.md 9-qadam) — runner 009 ni o'zi qo'llaydi.
-      009 siz yangi kod qidiruvda `birlik` ustunini topmaydi, shuning uchun serverga kod 009 bilan birga chiqishi kerak.
+- [x] **Supabase'ga 009 qo'llandi** (2026-09-27, foydalanuvchi ruxsati bilan, MacBook sessiyasidan): fayl matni +
+      `schema_migrations` yozuvi bitta tranzaksiyada (runner'dagi advisory lock bilan), checksum `2af5fac1…`.
+      Oldin tekshirildi: 001–008 checksum'lari lokal fayllar bilan mos; `finish_import` 003 dagidan faqat
+      `PERFORM hisobla_birliklar` bilan farq qiladi. Natija: `birlik`/`birlik_nomi` ustunlari bor; 5 kodeksda
+      bo'lim 0 (hammasi moddada), buxgalteriya qonunida 1 bo'lim; `search_articles` ishlaydi (moddalar qaytadi);
+      anon'da `search_articles`/`hisobla_birliklar` EXECUTE yo'q; baza 63 MB. Supabase'da hozircha 6 hujjat,
+      `topilgan_hujjatlar` bo'sh — qidiruv/kunlik import faqat lokal nusxada sinalgan, Supabase'da bot ishga
+      tushgach boshlanadi.
 
 ### Keyingi qadam
 - [ ] "yuk tashuvchi" ↔ "yuk tashuvlarini" — so'z o'zagi mos kelmaydi (`query.stem`), qaror topilmadi (8 dan 1).
