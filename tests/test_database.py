@@ -189,6 +189,7 @@ def test_parsed_tax_code_upsert_is_idempotent(db):
     doc = soliq_kodeksi()
 
     async def scenario(conn):
+        await conn.execute("DELETE FROM hujjatlar WHERE lex_id = $1", SK_ID)  # boshqa modullar qoldirgan bo'lishi mumkin
         doc_id = await new_document(conn, lex_id=SK_ID, name=doc.name, adoption_date=doc.adoption_date)
         rows = [element_row(e, doc_id) for e in doc.elements]
         await conn.executemany(UPSERT_ELEMENT, rows)

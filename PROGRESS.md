@@ -112,7 +112,7 @@ Jami Supabase'da: 6 hujjat, 24 254 element, 2 741 modda, noto'g'ri havola 0. Imp
 Eslatmalar: 1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan. 1996-yilgi buxgalteriya qonuni
 (-90762) kartochkada "Не действующий" — bu qiymat parserga noma'lum, shuning uchun `noma'lum` (taxmin qilinmaydi).
 
-## PHASE 3 — PostgreSQL search, retrieval, 10 savol ✅ (user tasdig'ini kutmoqda)
+## PHASE 3 — PostgreSQL search, retrieval, 10 savol ✅ (tasdiqlandi)
 
 ### Bajarildi
 - [x] `migrations/004_search.sql` — `norm_uz()` (o'zbek tutuq belgilari: "toʻlov" = "to'lov"), search_vector
@@ -130,3 +130,26 @@ Eslatmalar: 1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan
 Top-1 kutilgan ro'yxatda 6/8, asosiy modda top-3 da 6/8, kamida bitta kutilgan modda top-6 da 8/8, noaniq
 savollar 2/2 aniqlashtirishga yuborildi, qaytarilgan hujjatlar 100% `amalda`, uydirma havola 0.
 Ochiq kamchiliklar: 8-savol (mehnat shartnomasi) va 9-savol (bojxona to'lovi) asosiy moddalari top-6 da yo'q.
+
+## PHASE 4 — Claude API, structured output, citation validation (qisman: jonli test kutilmoqda)
+
+Anthropic hujjatlari (claude-api skill, SDK 1.8.0 manba kodi) bo'yicha tekshirildi: `client.beta.messages.parse`
+(`output_format` = Pydantic), `fallbacks="default"` + `server-side-fallback-2026-07-01`, adaptiv thinking
+(`budget_tokens` ishlatilmaydi), `output_config.effort` ixtiyoriy, `stop_reason` (refusal/max_tokens), usage/cache maydonlari,
+xatolar ierarxiyasi. SDK 1.x `httpx2` ustida — testlarda client soxta obyekt bilan almashtiriladi.
+
+### Bajarildi
+- [x] `app/ai/schemas.py` — AnswerOutput {answer_markdown, citations[source_id, claim], needs_more, confidence}, QueryRewrite
+- [x] `app/ai/prompts.py` — o'zgarmas system prompt (keshlanadi), manbalar XML (`<element id="EL-…">`), savol oxirida, escape
+- [x] `app/ai/validation.py` — faqat kontekstdagi source_id; havola faqat bazadan; javobdagi barcha URL olib tashlanadi
+- [x] `app/ai/client.py` — ClaudeLLM: fast model (so'rovlarni qayta yozish), main model (javob), xatolar → sodda xabar
+- [x] `app/services/answer.py` — to'liq zanjir: noaniq/tarixiy/topilmadi → Claude chaqirilmaydi; needs_more ≤ 2 round;
+      iqtibossiz javob 1 marta qayta so'raladi; baribir asos bo'lmasa — "ma'lumot yetarli emas" + eng yaqin manbalar
+- [x] `app/ai/console.py` — 5 savol konsol testi (`--no-llm` rejimi ham bor)
+- [x] Testlar: 198 passed; `tests/test_answer.py` (27 ta) — spec 27 dagi 10 hallucination holati va spec 28 citation testi
+      (soxta LLM bilan, backend qoidalari modelga bog'liq emas)
+- [x] Lokal nusxa (6 hujjat, 24 254 element) — retrieval natijalari Supabase bilan bir xil; kontekst 6–20 ming belgi
+
+### Kutilmoqda
+- [ ] Jonli Claude bilan 5 savol: `ANTHROPIC_API_KEY` muhitda yo'q. Kalit environment variables ga qo'shilgach:
+      `python -m app.ai.console` (natija `docs/phase4_console_report.md` ga yoziladi).

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     anthropic_main_model: str | None = None
     anthropic_fast_model: str | None = None
+    # Ixtiyoriy: "low" | "medium" | "high" | "xhigh" | "max" (bo'sh = model sukuti).
+    anthropic_effort: str | None = None
+    anthropic_max_tokens: int = Field(default=16000, gt=0)
+    # Server-side refusal fallback: "default" yoki "off" (model qo'llamasa "off" qiling).
+    anthropic_refusal_fallback: str = "default"
 
     supabase_url: str | None = None
     supabase_db_url: SecretStr | None = None
@@ -52,6 +57,7 @@ class Settings(BaseSettings):
         "anthropic_api_key",
         "anthropic_main_model",
         "anthropic_fast_model",
+        "anthropic_effort",
         "supabase_url",
         "supabase_db_url",
         "supabase_service_role_key",

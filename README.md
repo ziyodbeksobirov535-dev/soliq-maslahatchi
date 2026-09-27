@@ -71,6 +71,17 @@ for el in doc.article("461"):
     print(el.kind, el.link, el.text[:80])
 ```
 
+## Savol → javob (PHASE 4)
+
+```bash
+python -m app.ai.console --no-llm          # retrieval va kontekst (Claude'siz)
+python -m app.ai.console                   # 5 savol, jonli Claude (ANTHROPIC_API_KEY kerak)
+python -m app.ai.console "QQS stavkasi qancha?"
+```
+
+Zanjir: `app/retrieval` → `app/services/answer.py` → `app/ai` (structured output) → citation validation.
+Havolalar faqat bazadan; model yozgan URL olib tashlanadi, noma'lum manba ID rad etiladi.
+
 ## Xavfsizlik
 
 - `.env` git'ga tushmaydi; loglarda tokenlar avtomatik `***` bilan almashtiriladi.
