@@ -1,0 +1,225 @@
+"""Savolni qidiruv rejasiga aylantirish (spec 6: query understanding) — LLM'siz, deterministik.
+
+Nima qiladi:
+- matnni normallashtiradi (kichik harf, tutuq belgilarisiz — bazadagi `norm_uz()` bilan bir xil);
+- aniq modda raqamini ("461-modda") va hujjat ishorasini ("Mehnat kodeksi") ajratadi;
+- tarixiy sanani ("2024-yilda", "01.01.2025 holatiga") aniqlaydi;
+- stop-so'zlarni olib tashlaydi, o'zbekcha qo'shimchalarni ehtiyotkor kesadi va prefiks qidiruvi
+  (`soli:*`) quradi — "soliq", "solig'i", "soliqni" bir o'zakka tushadi;
+- kichik sinonim lug'ati: QQS, JSHDS, aylanma solig'i, import, jarima, topshirish;
+- mazmunsiz/ishorali savollarni ("Qaysi modda bu talabni belgilaydi?") `needs_clarification` qiladi.
+
+Bu qatlam Claude'ga ishonmaydi: keyingi bosqichda fast model qo'shimcha so'rovlar taklif qilishi
+mumkin, lekin asosiy reja shu yerda (spec 6: "modelga haddan tashqari ishonma").
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import date
+
+_APOSTROPHES = str.maketrans("", "", "ʻʼ'‘’`´")
+_WORD_RE = re.compile(r"[a-zа-яёўқғҳ0-9]+", re.IGNORECASE)
+
+# Savol so'zlari, bog'lovchilar, olmoshlar va juda umumiy fe'llar (normallashtirilgan shaklda).
+STOPWORDS = frozenset(
+    """
+    qanday qanaqa qachon qancha qaysi nima nimaga nega necha kim qayer qayerda qayerga
+    kerak kerakmi bor bormi yoq emas uchun bilan va yoki ham esa lekin ammo balki agar
+    bu shu u ular men biz siz mening bizning sizning ushbu osha ana mana
+    qilish qiladi qilinadi qilib qilgan bolsa boladi bolgan bolishi mumkin mumkinmi
+    edi ekan emish haqida boyicha deb dan ga da ni ning
+    """.split()
+)
+
+# Mazmunan juda umumiy — yolg'iz kelsa savol aniq emas.
+GENERIC = frozenset(
+    """
+    modda moddasi norma normasi talab talabni talabi qoida qoidasi tartib tartibi qonun
+    qonunchilik hujjat belgilaydi belgilangan belgila holat holatda holatiga yil yilda
+    vaqt vaqtda payt paytda
+    """.split()
+)
+
+DEMONSTRATIVES = frozenset({"bu", "shu", "osha", "ushbu", "ana", "mana"})
+
+# Qo'shimchalar: uzunidan qisqasiga. O'zak kamida MIN_STEM harf qoladi.
+SUFFIXES = (
+    "larining", "larning", "laridan", "larida", "lariga", "larini", "lardan", "larda", "larga",
+    "larni", "lari", "lar",
+    "sining", "sidan", "sida", "siga", "sini", "ining", "idan", "ida", "iga", "ini",
+    "ning", "dagi", "dan", "tan", "da", "ga", "ka", "qa", "ni", "si",
+    "anadi", "iladi", "ladi", "adi", "ydi", "ilgan", "gan", "ib",
+    "chilar", "chi", "lik", "i",
+)
+MIN_STEM = 4
+
+# Sinonimlar: kalit (normallashtirilgan so'z yoki o'zak) → qo'shimcha iboralar (har biri AND guruh).
+SYNONYMS: dict[str, tuple[str, ...]] = {
+    "qqs": ("qoshilgan qiymat soligi",),
+    "jshds": ("jismoniy shaxslardan olinadigan daromad soligi",),
+    "aylanma": ("aylanmadan olinadigan soliq",),
+    "import": ("olib kiriladigan", "olib kirish"),
+    "eksport": ("olib chiqiladigan", "olib chiqish"),
+    "jarima": ("moliyaviy sanksiya", "penya"),
+    "topshir": ("taqdim etish",),
+    "topshirish": ("taqdim etish",),
+    "ishchi": ("xodim",),
+}
+
+# Qisqartmalar qo'shimcha bilan keladi ("QQSga", "JSHDSni") — prefiks bo'yicha tan olinadi.
+ABBREVIATIONS = ("jshds", "qqs")
+
+DOCUMENT_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bsoliq kodeks"), "-4674902"),
+    (re.compile(r"\bmehnat kodeks"), "-6257288"),
+    (re.compile(r"\bbojxona kodeks"), "-2876354"),
+    (re.compile(r"\bfuqarolik kodeks"), "-111189,-180552"),
+    (re.compile(r"\bbuxgalteriya hisobi togrisida"), "-2931253"),
+)
+
+_ARTICLE_RE = re.compile(r"\b(\d{1,4})\s*(?:[-.]\s*(\d{1,2}))?\s*-?\s*modda|\bmodda\s+(\d{1,4})\b")
+_MONTHS = {
+    "yanvar": 1, "fevral": 2, "mart": 3, "aprel": 4, "may": 5, "iyun": 6,
+    "iyul": 7, "avgust": 8, "sentabr": 9, "oktabr": 10, "noyabr": 11, "dekabr": 12,
+}
+_DATE_DMY_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
+_DATE_TEXT_RE = re.compile(r"\b(\d{4})\s*-?\s*yil\w*\s+(\d{1,2})\s*-?\s*(" + "|".join(_MONTHS) + r")")
+_YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil")
+_YEAR_MONTH_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil\w*\s+(" + "|".join(_MONTHS) + r")")
+
+
+def normalize(text: str) -> str:
+    return (text or "").lower().translate(_APOSTROPHES)
+
+
+def stem(word: str) -> str:
+    """Ehtiyotkor o'zak: qo'shimchalarni kesadi, o'zak MIN_STEM dan qisqarmaydi.
+
+    Oxiridagi q/g/k tushiriladi (soliq/solig'i → soli), shunda prefiks qidiruvi ikkalasini topadi.
+    """
+    w = word
+    changed = True
+    while changed:
+        changed = False
+        for suf in SUFFIXES:
+            if w.endswith(suf) and len(w) - len(suf) >= MIN_STEM:
+                w = w[: -len(suf)]
+                changed = True
+                break
+    if w.endswith(("ash", "ish")) and len(w) - 2 >= MIN_STEM + 1:
+        w = w[:-2]  # saqlash → saqla, topshirish → topshiri
+    if len(w) >= MIN_STEM + 1 and w[-1] in "qgk":
+        w = w[:-1]
+    return w
+
+
+@dataclass
+class QueryPlan:
+    question: str
+    normalized: str
+    terms: list[str] = field(default_factory=list)  # o'zaklar (stop-so'zlarsiz)
+    phrases: list[list[str]] = field(default_factory=list)  # sinonim iboralari (o'zaklar)
+    article_number: str | None = None
+    lex_ids: list[str] | None = None
+    historical_date: date | None = None
+    historical_precision: str | None = None  # "day" | "month" | "year"
+    needs_clarification: bool = False
+    clarification_reason: str | None = None
+
+    @property
+    def ts_terms(self) -> list[str]:
+        """search_articles() uchun bo'laklar: har bir o'zak prefiks, sinonim iborasi AND-guruh."""
+        parts = [f"{t}:*" for t in self.terms]
+        parts += ["(" + " & ".join(f"{t}:*" for t in phrase) + ")" for phrase in self.phrases]
+        return list(dict.fromkeys(parts))
+
+    @property
+    def tsquery(self) -> str | None:
+        """Bitta to_tsquery ko'rinishi (log va tekshiruv uchun)."""
+        return " | ".join(self.ts_terms) or None
+
+    @property
+    def trigram_text(self) -> str:
+        return " ".join(self.terms)
+
+    @property
+    def is_historical(self) -> bool:
+        return self.historical_date is not None
+
+
+def _historical(norm: str, today: date) -> tuple[date | None, str | None]:
+    m = _DATE_DMY_RE.search(norm)
+    if m:
+        try:
+            return date(int(m.group(3)), int(m.group(2)), int(m.group(1))), "day"
+        except ValueError:
+            pass
+    m = _DATE_TEXT_RE.search(norm)
+    if m:
+        try:
+            return date(int(m.group(1)), _MONTHS[m.group(3)], int(m.group(2))), "day"
+        except ValueError:
+            pass
+    m = _YEAR_MONTH_RE.search(norm)
+    if m:
+        return date(int(m.group(1)), _MONTHS[m.group(2)], 1), "month"
+    m = _YEAR_RE.search(norm)
+    if m:
+        year = int(m.group(1))
+        if year < today.year:
+            return date(year, 12, 31), "year"  # yil oxiridagi holat; javobda aniqlashtiriladi
+        return None, None
+    return None, None
+
+
+def analyze(question: str, today: date) -> QueryPlan:
+    norm = normalize(question)
+    plan = QueryPlan(question=question, normalized=norm)
+
+    m = _ARTICLE_RE.search(norm)
+    if m:
+        main, sub, alt = m.groups()
+        plan.article_number = f"{int(main)}-{int(sub)}" if sub else str(int(main or alt))
+
+    for pattern, ids in DOCUMENT_HINTS:
+        if pattern.search(norm):
+            plan.lex_ids = (plan.lex_ids or []) + ids.split(",")
+
+    hist, precision = _historical(norm, today)
+    if hist is not None and hist < today:
+        plan.historical_date, plan.historical_precision = hist, precision
+
+    words = [w for w in _WORD_RE.findall(norm) if not w.isdigit()]
+    content = [w for w in words if w not in STOPWORDS and len(w) >= 2]
+    meaningful = [w for w in content if w not in GENERIC and not re.fullmatch(r"(yil|modda)\w*", w)]
+    # Hujjat nomidagi so'zlar mazmun emas, faqat filtr.
+    if plan.lex_ids:
+        meaningful = [w for w in meaningful if w not in {"kodeksi", "kodeks", "kodeksning", "soliq", "mehnat",
+                                                         "bojxona", "fuqarolik", "buxgalteriya", "hisobi",
+                                                         "togrisida"}] or meaningful
+
+    meaningful = [w for w in meaningful if w not in _MONTHS]
+    seen: set[str] = set()
+    for w in meaningful:
+        abbr = next((a for a in ABBREVIATIONS if w.startswith(a) and len(w) - len(a) <= 4), None)
+        s = abbr or stem(w)
+        if s not in seen:
+            seen.add(s)
+            plan.terms.append(s)
+        for key in (w, s):
+            for phrase in SYNONYMS.get(key, ()):
+                stems = [stem(p) for p in phrase.split()]
+                if stems not in plan.phrases:
+                    plan.phrases.append(stems)
+
+    has_demonstrative = any(w in DEMONSTRATIVES for w in words)
+    if plan.article_number is None:
+        if not plan.terms:
+            plan.needs_clarification = True
+            plan.clarification_reason = "savolda qidirish uchun mazmunli so'z yo'q"
+        elif has_demonstrative and len(plan.terms) <= 1:
+            plan.needs_clarification = True
+            plan.clarification_reason = "savol oldingi kontekstga ishora qiladi ('bu', 'shu'), mavzu aniq emas"
+    return plan
