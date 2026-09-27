@@ -156,3 +156,22 @@ xatolar ierarxiyasi. SDK 1.x `httpx2` ustida — testlarda client soxta obyekt b
       qo'shilgach: `bash scripts/dev_replica.sh` (kerak bo'lsa) va
       `SUPABASE_DB_URL=postgresql://postgres@127.0.0.1:5433/soliq_replica python -m app.ai.console`
       (natija `docs/phase4_console_report.md` ga yoziladi). Kalit repoga yozilmaydi — faqat muhit o'zgaruvchisi.
+
+## PHASE 5 — Telegram bot ✅ kod va testlar (jonli Telegram sinovi token kutmoqda)
+
+### Bajarildi
+- [x] `app/bot/handlers.py` — /start (ro'yxatga olish), /profil (soha/rejim/shakl, kunlik limit), /modda N [hujjat]
+      (Claude'siz, bazadan: soliq/mehnat/bojxona/fuqarolik/buxgalteriya), /stat (faqat ADMIN_TELEGRAM_IDS),
+      /yangiliklar (PHASE 6 da), oddiy savol → answer zanjiri; xato ishlovchi (sodda xabar, stack trace yo'q)
+- [x] `app/bot/formatting.py` — Telegram HTML, escape, cheklangan markdown, 4096 belgi bo'lish, havolalar faqat bazadan
+- [x] `app/services/users.py` — foydalanuvchi, profil, kunlik limit (Asia/Tashkent kuni, admin cheklanmagan),
+      `suhbatlar` jurnali (so'rovlar, element id'lari, iqtiboslar, tokenlar, vaqt, status)
+- [x] `migrations/006_suhbat_status.sql` — suhbat natijasi turi (Supabase'ga qo'llangan)
+- [x] Claude chaqiruvlari `asyncio.to_thread` da — bir foydalanuvchi boshqalarni kutdirmaydi
+- [x] ANTHROPIC kaliti bo'lmasa bot ishlayveradi: /modda ishlaydi, savollarga "sozlanmagan" javobi
+- [x] `main.py` — botni ishga tushiradi (`python main.py`), `--check` sozlama tekshiruvi
+- [x] Testlar: 224 passed; `tests/test_bot.py` (26 ta) — haqiqiy aiogram Dispatcher + soxta Telegram sessiyasi
+
+### Kutilmoqda
+- [ ] Jonli Telegram sinovi: `TELEGRAM_BOT_TOKEN` (@BotFather) kerak. Doimiy ishlashi — PHASE 7 (server).
+- [ ] Jonli savol-javob — Anthropic krediti (loyiha oxirida to'ldiriladi).

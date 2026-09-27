@@ -12,6 +12,7 @@ Qat'iy qoidalar:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -194,7 +195,7 @@ async def answer_question(
         else:
             groups = [result.hits]
             if use_rewrite:
-                extra = llm.rewrite_queries(question, usage)
+                extra = await asyncio.to_thread(llm.rewrite_queries, question, usage)
                 queries += extra
                 for q in extra:
                     groups.append(await _search_text(conn, q, today, result.plan.lex_ids))
@@ -210,7 +211,8 @@ async def answer_question(
         rejected: list[str] = []
         removed: list[str] = []
         while True:
-            output = llm.answer(render_user_message(question, articles, today, note), usage)
+            # Sinxron SDK chaqiruvi alohida oqimda — bot boshqa foydalanuvchilarni kutdirmaydi.
+            output = await asyncio.to_thread(llm.answer, render_user_message(question, articles, today, note), usage)
             validated = validate_answer(output, articles)
             rejected += validated.rejected_source_ids
             removed += validated.removed_urls

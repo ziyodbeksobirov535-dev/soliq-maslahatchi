@@ -82,6 +82,16 @@ python -m app.ai.console "QQS stavkasi qancha?"
 Zanjir: `app/retrieval` → `app/services/answer.py` → `app/ai` (structured output) → citation validation.
 Havolalar faqat bazadan; model yozgan URL olib tashlanadi, noma'lum manba ID rad etiladi.
 
+## Telegram bot (PHASE 5)
+
+```bash
+python main.py --check     # sozlamalarni tekshirish
+python main.py             # bot (TELEGRAM_BOT_TOKEN va SUPABASE_DB_URL kerak)
+```
+
+Buyruqlar: `/start`, `/modda 461` (yoki `/modda 106 mehnat`), `/profil`, `/stat` (admin), oddiy matn — savol.
+ANTHROPIC kaliti bo'lmasa `/modda` ishlaydi, savollarga "sozlanmagan" javobi qaytadi.
+
 ## Xavfsizlik
 
 - `.env` git'ga tushmaydi; loglarda tokenlar avtomatik `***` bilan almashtiriladi.
