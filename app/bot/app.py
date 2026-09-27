@@ -11,6 +11,7 @@ from app.ai.client import ClaudeLLM
 from app.bot.handlers import create_router
 from app.config import Settings
 from app.database.connection import create_pool
+from app.health import write_heartbeat
 from app.scheduler.scheduler import build_scheduler
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def run_bot(settings: Settings) -> None:
         await bot.set_my_commands(COMMANDS)
         scheduler = build_scheduler(pool, settings, llm)
         scheduler.start()
+        write_heartbeat()
         log.info("bot started, scheduler jobs=%s", [j.id for j in scheduler.get_jobs()])
         try:
             await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

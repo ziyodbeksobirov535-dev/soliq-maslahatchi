@@ -196,3 +196,25 @@ bilan to'liq test o'tkaziladi. Faqat `py_compile`/import tekshiruvi va RSS fixtu
 - [ ] parse_rss fixture testlari, keyword filtri, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
       scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007)
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
+
+## PHASE 7 — Production deployment ✅ kod va qo'llanma (testlar keyinroq)
+
+Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `bash -n` va `py_compile` tekshiruvlari o'tdi.
+
+### Bajarildi
+- [x] Narxlar taqqoslovi (2026-09): Hetzner CX23 ~€5.49, DO $6/$12, Railway Hobby $5+, Render worker $7,
+      Supabase Free/Pro $25 — manbalar bilan `docs/DEPLOYMENT.md` da. Tavsiya: VPS 2–4 GB + Supabase Free (pilot),
+      production uchun Supabase Pro (backup)
+- [x] `docs/DEPLOYMENT.md` — o'zbekcha qadamlar: server, `.env` (bot token, Anthropic, Session pooler URI),
+      systemd, scheduler, loglar, backup, health check, yangilash, muammolar jadvali
+- [x] `deploy/soliq-bot.service` — systemd (Restart=always, alohida `soliq` user, ProtectSystem=strict, MemoryMax)
+- [x] `deploy/backup.sh` — kunlik `pg_dump` (custom format, 14 kun); `.env` source qilinmaydi (parol belgilari)
+- [x] `deploy/healthcheck.sh` — cron har 10 daqiqa; muammo bo'lsa birinchi adminga Telegram xabar
+- [x] `app/health.py` — `python -m app.health [--bot]`: db, hujjatlar, RSS ≤36 soat, heartbeat ≤15 daqiqa (JSON, exit 1)
+- [x] Scheduler'ga heartbeat job (5 daqiqa); bot ishga tushganda darhol heartbeat yoziladi
+
+### Loyiha oxirida qilinadigan ishlar
+- [ ] To'liq test (boshqa model bilan): PHASE 6–7 modullari uchun yangi testlar + barcha eski testlar
+- [ ] Anthropic krediti → jonli 5 savol (`python -m app.ai.console`)
+- [ ] Telegram token → jonli bot sinovi, keyin serverga o'rnatish (`docs/DEPLOYMENT.md`)
+- [ ] Chatda ko'rsatilgan Anthropic kalitini revoke qilib, yangisini faqat server `.env` ga yozish

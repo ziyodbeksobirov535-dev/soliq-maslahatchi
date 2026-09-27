@@ -92,6 +92,15 @@ python main.py             # bot (TELEGRAM_BOT_TOKEN va SUPABASE_DB_URL kerak)
 Buyruqlar: `/start`, `/modda 461` (yoki `/modda 106 mehnat`), `/profil`, `/stat` (admin), oddiy matn — savol.
 ANTHROPIC kaliti bo'lmasa `/modda` ishlaydi, savollarga "sozlanmagan" javobi qaytadi.
 
+## Serverga o'rnatish (PHASE 7)
+
+To'liq qo'llanma: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — narxlar, systemd, backup, health check.
+
+```bash
+python -m app.health --bot                 # holat tekshiruvi (JSON, muammo bo'lsa exit 1)
+python -m app.collector.jobs rss           # RSS'ni qo'lda ishga tushirish
+```
+
 ## Xavfsizlik
 
 - `.env` git'ga tushmaydi; loglarda tokenlar avtomatik `***` bilan almashtiriladi.

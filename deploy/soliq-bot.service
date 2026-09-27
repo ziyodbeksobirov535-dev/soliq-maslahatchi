@@ -1,0 +1,25 @@
+# /etc/systemd/system/soliq-bot.service
+# O'rnatish: docs/DEPLOYMENT.md (4-qadam). Bot + scheduler bitta jarayonda.
+[Unit]
+Description=Soliq maslahatchi Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=soliq
+WorkingDirectory=/opt/soliq-maslahatchi
+EnvironmentFile=/opt/soliq-maslahatchi/.env
+ExecStart=/opt/soliq-maslahatchi/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+# Xavfsizlik: faqat kerakli papkalarga yozish
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/soliq-maslahatchi/.cache
+PrivateTmp=true
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target
