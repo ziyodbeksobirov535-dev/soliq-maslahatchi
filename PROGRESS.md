@@ -97,15 +97,17 @@ ulanishi orqali yozadi, faqat 3 amalni bajaradi, tasodifiy token bilan himoyalan
 
 Production'da bot to'g'ridan-to'g'ri `SUPABASE_DB_URL` bilan ishlaydi (PHASE 7).
 
-### Asosiy hujjatlar (Lex.uz kartochkasi bilan tekshirilgan, 2026-09-27)
+### Asosiy hujjatlar (Lex.uz kartochkasi bilan tekshirilgan, hammasi import qilingan 2026-09-27)
+Jami Supabase'da: 6 hujjat, 24 254 element, 2 741 modda, noto'g'ri havola 0. Import funksiyasi yana o'chirilgan.
+
 | Hujjat | Lex.uz ID | Kartochka holati | Import |
 |---|---|---|---|
-| Soliq kodeksi | -4674902 | Действующий | ruxsat berilgan |
-| Mehnat kodeksi (2022) | -6257288 | Действующий | tasdiq kutilmoqda |
-| Fuqarolik kodeksi, 1-qism | -111189 | Действующий | tasdiq kutilmoqda |
-| Fuqarolik kodeksi, 2-qism | -180552 | Действующий | tasdiq kutilmoqda |
-| Bojxona kodeksi | -2876354 | Действующий | tasdiq kutilmoqda |
-| Buxgalteriya hisobi to'g'risida (O'RQ-404 yangi tahrir) | -2931253 | Действующий | tasdiq kutilmoqda |
+| Soliq kodeksi | -4674902 | Действующий | ✅ 8 137 el., 500 modda |
+| Mehnat kodeksi (2022) | -6257288 | Действующий | ✅ 4 270 el., 593 modda |
+| Fuqarolik kodeksi, 1-qism | -111189 | Действующий | ✅ 2 876 el., 386 modda |
+| Fuqarolik kodeksi, 2-qism | -180552 | Действующий | ✅ 4 556 el., 811 modda |
+| Bojxona kodeksi | -2876354 | Действующий | ✅ 4 151 el., 419 modda |
+| Buxgalteriya hisobi to'g'risida (O'RQ-404 yangi tahrir) | -2931253 | Действующий | ✅ 264 el., 32 modda |
 
 Eslatmalar: 1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan. 1996-yilgi buxgalteriya qonuni
 (-90762) kartochkada "Не действующий" — bu qiymat parserga noma'lum, shuning uchun `noma'lum` (taxmin qilinmaydi).

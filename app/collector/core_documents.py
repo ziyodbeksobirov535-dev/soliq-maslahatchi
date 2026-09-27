@@ -25,25 +25,25 @@ CORE_DOCUMENTS: tuple[CoreDocument, ...] = (
     ),
     CoreDocument(
         "-6257288", "Oʻzbekiston Respublikasining Mehnat kodeksi (2022)", "2026-09-27", "Действующий",
-        approved=False, note="1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan",
+        approved=True, note="1995-yilgi Mehnat kodeksi (-142859) 30.04.2023 dan kuchini yo'qotgan",
     ),
     CoreDocument(
         "-111189", "Oʻzbekiston Respublikasining Fuqarolik kodeksi (birinchi qism)", "2026-09-27", "Действующий",
-        approved=False,
+        approved=True,
     ),
     CoreDocument(
         "-180552", "Oʻzbekiston Respublikasining Fuqarolik kodeksi (ikkinchi qism)", "2026-09-27", "Действующий",
-        approved=False,
+        approved=True,
     ),
     CoreDocument(
-        "-2876354", "Oʻzbekiston Respublikasining Bojxona kodeksi", "2026-09-27", "Действующий", approved=False
+        "-2876354", "Oʻzbekiston Respublikasining Bojxona kodeksi", "2026-09-27", "Действующий", approved=True
     ),
     CoreDocument(
         "-2931253", "“Buxgalteriya hisobi toʻgʻrisida”gi Qonun (O‘RQ-404, yangi tahrir)", "2026-09-27",
-        "Действующий", approved=False,
+        "Действующий", approved=True,
         note=(
             "1996-yilgi 279-I-son qonun (-90762) kartochkada 'Не действующий', oxirgi versiyasi 14.04.2016. "
-            "Amaldagi matn O'RQ-404 hujjati ichida yangi tahrir sifatida — foydalanuvchi bilan tasdiqlash kerak."
+            "Amaldagi matn (1–32-moddalar) O'RQ-404 hujjati ichida yangi tahrir sifatida; importga ruxsat 2026-09-27."
         ),
     ),
 )

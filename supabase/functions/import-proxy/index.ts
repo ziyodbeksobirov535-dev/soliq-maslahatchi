@@ -13,7 +13,7 @@
 
 import postgres from "npm:postgres@3.4.5";
 
-const TOKEN_SHA256 = "17b61fec6d8393db9b7154af49f8235659f94d461ca2256dd1bad8c8a853246a";
+const TOKEN_SHA256 = "505ce717d1d4c08347debaba12abeed853c5fbcefb908d65d1666e3a7cb6a1de";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 1 });
