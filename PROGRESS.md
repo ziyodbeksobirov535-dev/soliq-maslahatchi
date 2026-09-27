@@ -192,8 +192,29 @@ bilan to'liq test o'tkaziladi. Faqat `py_compile`/import tekshiruvi va RSS fixtu
       botga ulangan (`python main.py`), job xatosi bot/scheduler'ni yiqitmaydi
 - [x] `/yangiliklar` — oxirgi 7 kun, relevant; metadata, holat, xulosa, Lex.uz havolasi
 
+### Filtr kengaytirildi va topilgan hujjatlar kuzatiladi (2026-09-27, foydalanuvchi so'rovi)
+- RSS (`https://lex.uz/uz/rss`) barcha yangi hujjatlarni beradi: jonli RSS'da 131 tadan 13 Prezident farmoni,
+  17 Prezident qarori, 28 VM qarori, 8 qonun — manba yetarli, filtr muammo edi.
+- Eski filtr substring bo'yicha ishlardi → soxta mosliklar: "olish haqida" → "ish haqi", "tartibga solish" →
+  "soli", "akkreditatsiya" → "kredit", "Yangibozor" → "bozor". Endi faqat so'z boshidan mos keladi.
+- Ikki daraja: `KUCHLI_SOZLAR` (soliq, BHMS/BHS, schyotlar rejasi, imtiyoz, litsenziya, ruxsatnoma, xabardor
+  qilish, ma'muriy reglament, xususiylashtirish, elektron tijorat...) — kalitsiz ham relevant;
+  `SOHA_SOZLARI` (qishloq xo'jaligi, qurilish, tibbiyot, IT, bank, transport...) — faqat fast model tekshiradi.
+  Fixture'da: 27 kuchli, 48 soha, 56 mos emas. Yangi topilganlar: BHS "Yagona schyotlar rejasi", xususiylashtirish
+  farmoni, kichik biznes farmoni, elektron tijorat qonuni, litsenziyalash tartib-taomillari.
+- News prompt: istalgan sohadagi imtiyoz/subsidiya/hisobot talablari va faoliyat yuritish tartiblari ahamiyatli.
+- `weekly_refresh_job` endi 6 asosiy hujjat + RSS'dan import qilingan (kuchini yo'qotmagan) hujjatlarni yangilaydi
+  (`tracked_documents`) — farmon/qarorga o'zgartirish kiritilsa, bir hafta ichida bazada yangilanadi.
+- Jonli (lokal nusxa): `jobs rss` — 27 relevant, 2 run'da 27 import, xato 0; kuzatiladigan hujjatlar 33 ta.
+- Testlar ishga tushirilmadi (foydalanuvchi so'rovi) — `py_compile` va jonli job tekshiruvi.
+
+### Keyingi qadam (tasdiq kerak)
+- [ ] RSS faqat yangi hujjatlarni beradi. Amaldagi eski faoliyat tartiblari/imtiyozlarni topish uchun Lex.uz
+      qidiruv sahifasi parseri kerak — avval real HTML namunasi `tests/fixtures/lexuz/` ga olinadi.
+- [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
+
 ### Test qilinishi kerak (oxirida)
-- [ ] parse_rss fixture testlari, keyword filtri, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
+- [ ] parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
       scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007)
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 

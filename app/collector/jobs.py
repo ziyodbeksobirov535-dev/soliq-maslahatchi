@@ -73,17 +73,37 @@ async def future_recheck_job(pool: asyncpg.Pool, settings: Settings) -> None:
             log.error("future_recheck_job failed", exc_info=True)
 
 
+async def tracked_documents(pool: asyncpg.Pool) -> list[str]:
+    """Kuzatiladigan hujjatlar: asosiy hujjatlar + RSS'dan import qilingan, kuchini yo'qotmaganlar."""
+    ids = [d.lex_id for d in approved_documents()]
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT y.lex_id FROM yangiliklar y JOIN hujjatlar h ON h.lex_id = y.lex_id "
+            "WHERE y.imported AND h.status <> 'kuchini_yoqotgan' ORDER BY h.last_successful_load NULLS FIRST"
+        )
+    seen = set(ids)
+    ids += [r["lex_id"] for r in rows if r["lex_id"] not in seen]
+    return ids
+
+
 async def weekly_refresh_job(pool: asyncpg.Pool, settings: Settings) -> None:
-    """Asosiy hujjatlar: to'liq yangilash; import o'zgarishlarni `ozgarishlar` ga yozadi (spec 17)."""
+    """Asosiy va RSS'dan topilgan hujjatlar: to'liq yangilash; import o'zgarishlarni `ozgarishlar` ga yozadi
+    (spec 17). Farmon/qarorga o'zgartirish kiritilsa, bir hafta ichida bazada yangilanadi."""
     with request_context():
+        try:
+            lex_ids = await tracked_documents(pool)
+        except Exception:
+            log.error("weekly_refresh_job: hujjatlar ro'yxati olinmadi", exc_info=True)
+            return
+        log.info("weekly refresh documents=%d", len(lex_ids))
         with make_lexuz_client(settings) as client:
-            for d in approved_documents():
+            for lex_id in lex_ids:
                 try:
-                    res = await refresh_document(pool, client, d.lex_id, settings)
+                    res = await refresh_document(pool, client, lex_id, settings)
                     log.info("refresh lex_id=%s added=%d changed=%d removed=%d",
-                             d.lex_id, res.added, res.changed, res.removed)
+                             lex_id, res.added, res.changed, res.removed)
                 except Exception:
-                    log.error("refresh failed lex_id=%s", d.lex_id, exc_info=True)
+                    log.error("refresh failed lex_id=%s", lex_id, exc_info=True)
 
 
 def main() -> None:

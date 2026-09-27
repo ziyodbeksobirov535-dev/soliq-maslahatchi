@@ -2,8 +2,11 @@
 
     RSS → SOLIQ_SOZLARI filtri → (fast model bilan) relevantlik → to'liq yuklash → parse → upsert → o'zgarishlar
 
-- Kalit so'z filtri har doim ishlaydi. Fast model (ANTHROPIC) bo'lsa — relevantlik va qisqa faktik xulosa;
-  bo'lmasa — keyword natijasi saqlanadi (`relevance_method = 'keyword'`, summary bo'sh).
+- RSS barcha yangi hujjatlarni beradi: Prezident farmon/qarorlari, Vazirlar Mahkamasi qarorlari, qonunlar,
+  idoraviy hujjatlar. Kalit so'z filtri har doim ishlaydi. Fast model (ANTHROPIC) bo'lsa — kuchli yoki soha
+  so'zi bor hujjatlar uchun relevantlik va qisqa faktik xulosa; bo'lmasa — faqat kuchli so'z bor hujjatlar
+  relevant (`relevance_method = 'keyword'`, summary bo'sh).
+- Import qilingan hujjatlar keyin haftalik yangilashda kuzatiladi (`jobs.weekly_refresh_job`).
 - Relevant hujjat to'liq yuklanadi va `import_document` bilan bazaga yoziladi (idempotent, holat kartochkadan).
 - Qayta ishga tushirish xavfsiz: `yangiliklar` lex_id bo'yicha UPSERT, allaqachon import qilinganlari qayta
   yuklanmaydi (haftalik/kelajakdagi qayta tekshiruv alohida job'larda).
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -26,14 +30,40 @@ from app.retrieval.query import normalize
 
 log = logging.getLogger(__name__)
 
-# Normallashtirilgan (kichik harf, tutuq belgisiz) prefikslar. Keng — yakuniy qarorni model beradi.
-SOLIQ_SOZLARI = (
-    "soliq", "soli", "qqs", "qoshilgan qiymat", "aksiz", "bojxona", "boj ", "buxgalter", "moliyaviy hisobot",
-    "audit", "mehnat", "ish haqi", "xodim", "pensiya", "ijtimoiy", "tadbirkor", "yakka tartibdagi", "korxona",
-    "litsenziya", "imtiyoz", "subsidiya", "kredit", "investitsiya", "eksport", "import", "valyuta", "bank",
-    "sugurta", "jarima", "penya", "byudjet", "tarif", "davlat xarid", "mol-mulk", "yer uchastka", "ijara",
-    "hisobvaraq-faktura", "kassa", "tolov", "narx", "bozor", "savdo",
+# Normallashtirilgan (kichik harf, tutuq belgisiz) so'z boshi prefikslari: faqat so'z boshidan mos keladi
+# ("olish haqida" → "ish haqi" emas, "tartibga solish" → "soliq" emas, "akkreditatsiya" → "kredit" emas).
+# Ro'yxat 2026-09-27 dagi jonli RSS (131 hujjat) tahlili asosida.
+#
+# KUCHLI so'zlar — soliq/buxgalteriya/tadbirkorlik tartibiga bevosita aloqador; model bo'lmasa ham relevant.
+KUCHLI_SOZLAR = (
+    # soliqlar va to'lovlar
+    "soliq", "solig", "qqs", "qoshilgan qiymat", "aksiz", "bojxona", "boj", "jarima", "penya", "yigim",
+    "davlat boji", "majburiy tolov", "hisobvaraq-faktura", "elektron hisobvaraq", "kassa", "onlayn-nazorat",
+    # buxgalteriya va hisobot
+    "buxgalter", "moliyaviy hisobot", "hisob standart", "bhms", "bhs", "schyotlar rejasi", "audit", "inventarizatsiya",
+    # mehnat va ijtimoiy to'lovlar
+    "mehnat", "ish haqi", "pensiya", "ijtimoiy soliq", "ijtimoiy sugurta", "badal",
+    # tadbirkorlik va imtiyozlar
+    "tadbirkor", "yakka tartibdagi", "korxona", "biznes", "imtiyoz", "preferensiya", "subsidiya", "kompensatsiya",
+    "investitsiya", "eksport", "import", "valyuta", "davlat xarid", "xususiylashtir", "davlat aktiv",
+    "erkin iqtisodiy zona", "maxsus iqtisodiy zona", "kichik sanoat zona", "it-park", "it park", "elektron tijorat",
+    "mol-mulk", "yer uchastka", "ijara", "debitor", "kreditorlik",
+    # faoliyat yuritish tartiblari (litsenziya, ruxsat, xabardor qilish, davlat xizmati reglamenti)
+    "litsenziya", "ruxsatnoma", "ruxsat berish", "ruxsat etish", "xabardor qilish", "tartib-taomil",
+    "faoliyatini amalga oshirish", "faoliyat yuritish", "faoliyatni amalga oshirish", "mamuriy reglament",
+    "davlat royxatidan otkaz", "sertifikat",
 )
+# SOHA so'zlari — ko'p hujjatda uchraydi, soliqqa aloqasi har doim ham yo'q; faqat model bo'lsa tekshiriladi.
+SOHA_SOZLARI = (
+    "qishloq xojalig", "fermer", "dehqon", "chorva", "parranda", "baliqchilik", "asalarichilik", "paxta", "galla",
+    "qurilish", "kochmas mulk", "uy-joy", "turizm", "mehmonxona", "farmatsevtik", "dori", "tibbiy", "klinika",
+    "talim xizmat", "nodavlat", "transport", "yuk tashish", "energiya", "elektr energiya", "gaz", "neft", "yoqilgi",
+    "raqamli", "dasturiy", "kripto", "sugurta", "bank", "kredit", "moliya", "qimmatli qogoz", "birja", "savdo",
+    "bozor", "narx", "tarif", "tolov", "ijtimoiy", "xodim", "kasanachi", "hunarmand", "oziq-ovqat", "alkogol",
+    "tamaki", "sanoat", "ishlab chiqarish", "xizmat korsat", "tovar", "budjet", "byudjet",
+)
+SOLIQ_SOZLARI = KUCHLI_SOZLAR + SOHA_SOZLARI
+_KALIT_RE = {k: re.compile(r"(?<![0-9a-zа-яёўқғҳ])" + re.escape(k)) for k in SOLIQ_SOZLARI}
 MAX_IMPORTS_PER_RUN = 20
 EXCERPT_CHARS = 3000
 
@@ -51,7 +81,11 @@ class RssRunStats:
 
 def keyword_hits(item: lexuz.RssItem) -> list[str]:
     text = normalize(f" {item.title} {item.description} ")
-    return [k for k in SOLIQ_SOZLARI if k in text]
+    return [k for k, rx in _KALIT_RE.items() if rx.search(text)]
+
+
+def has_strong_hit(hits: list[str]) -> bool:
+    return any(h in KUCHLI_SOZLAR for h in hits)
 
 
 def _meta(item: lexuz.RssItem) -> str:
@@ -114,9 +148,10 @@ async def process_rss(pool: asyncpg.Pool, client: lexuz.LexUzClient, llm, today:
         stats.new += item.lex_id not in known
         hits = keyword_hits(item)
         try:
-            if not hits:
+            # Model bo'lmasa faqat kuchli so'z relevant; soha so'zlarini model tekshiradi.
+            if not hits or (llm is None and not has_strong_hit(hits)):
                 async with pool.acquire() as conn:
-                    await _save(conn, item, [], False, "keyword", [], None, False)
+                    await _save(conn, item, hits, False, "keyword", [], None, False)
                 continue
             stats.keyword_hits += 1
             doc = card = None
