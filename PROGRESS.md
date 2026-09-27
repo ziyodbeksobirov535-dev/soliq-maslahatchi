@@ -380,7 +380,7 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - Soliq kodeksi va boshqa kuzatiladigan hujjatlardagi o'zgarishlar ham xabar bo'ladi — admin tasdig'i bilan.
 - Keyinchalik kanalga ham yuborish (hozir emas).
 
-### B bosqich ✅ kod va testlar (2026-09-28; Supabase'ga 011 hali qo'llanmagan)
+### B bosqich ✅ kod va testlar (2026-09-28)
 - [x] `migrations/011_xabarlar.sql`: `xabarlar` (turi, kalit UNIQUE, matn, havola, tugmalar, usul, holat:
       kutilmoqda → tasdiqlandi/bekor → yuborildi, admin ko'rinishlari), `xabar_yuborishlar` (PK xabar+foydalanuvchi),
       `foydalanuvchilar.bloklagan`, `ozgarishlar.xabar_id`.
@@ -394,4 +394,7 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - [x] Scheduler: `publish` har 15 daqiqa (faqat kunduzi): tayyorlash → adminlarga ko'rinish → yuborish;
       RSS kuniga 3 marta (07:10, 12:10, 17:10).
 - Testlar: `tests/test_xabarlar.py` (13 ta, soxta Telegram bot); jami 345 passed.
-- [ ] Supabase'ga 011 (ruxsat bilan), bot qayta ishga tushirish, jonli sinov (RSS'ni bir marta ishga tushirish).
+- [x] Supabase'ga **011** qo'llandi (ruxsat bilan, runner orqali): checksum `2f077b46…`, RLS yoqilgan.
+- [x] Bot Mac'da qayta ishga tushirildi (job'lar: heartbeat, publish, rss, future_recheck, import_found, discover,
+      weekly_refresh); `caffeinate -i -w <bot pid>` — bot ishlaganda Mac uxlamaydi.
+- [ ] Jonli sinov: 07:10 da RSS avtomatik (≤20 import), 09:00 dan keyin adminga tasdiq ko'rinishlari.
