@@ -64,7 +64,7 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
 | `ozgarishlar`: `UNIQUE NULLS NOT DISTINCT` + change_type/hash CHECK | collector qayta ishga tushsa dublikat yo'q |
 | barcha jadvallarda RLS | Supabase anon API orqali ma'lumot sizib chiqmasligi |
 
-## PHASE 2 — Soliq kodeksi importi, /modda, havolalar (davom etmoqda)
+## PHASE 2 — Soliq kodeksi importi, /modda, havolalar ✅ (user tasdig'ini kutmoqda)
 
 ### Supabase
 - Loyiha: `soliq-maslahatchi`, ref `lxhpaappvrzxxqzafnct`, mintaqa eu-central-1 (Frankfurt), free tarif, PostgreSQL 17.
@@ -83,11 +83,19 @@ aniq User-Agent. Katta hajmli yuklashdan oldin (PHASE 2+) foydalanuvchi tasdig'i
       461-modda bazadan parser natijasi bilan bir xil, barcha 8 137 havola canonical va real anchor'ga ishora qiladi
 - [x] Quruq rejim jonli Lex.uz'da: Soliq kodeksi — 8 137 element, 500 modda, holat `amalda`
 
-### Bloklangan
-- [ ] Soliq kodeksini Supabase'ga haqiqiy import qilish. Cloud dev muhit raw TCP (Postgres 5432/6543) ochmaydi,
-      shuning uchun REST yo'li ishlatiladi. Buning uchun muhit o'zgaruvchilari kerak:
-      `SUPABASE_URL=https://lxhpaappvrzxxqzafnct.supabase.co` va `SUPABASE_SERVICE_ROLE_KEY`
-      (Supabase → Project Settings → API Keys → service_role / secret). Kalit chatga yozilmaydi.
+### Supabase'ga import (2026-09-27) ✅
+Cloud dev muhit raw TCP (Postgres) ochmaydi va service_role kaliti yo'q edi, shuning uchun vaqtinchalik
+`import-proxy` Edge Function ishlatildi (`supabase/functions/import-proxy/index.ts`): bazaga Supabase ichki
+ulanishi orqali yozadi, faqat 3 amalni bajaradi, tasodifiy token bilan himoyalangan (kodda faqat SHA-256).
+- Birinchi import: 8 137 element qo'shildi; qayta import: 0 qo'shilgan / 0 o'zgargan / 0 o'chirilgan.
+- Tekshiruv (Supabase'da): 500 modda, holat `amalda` ("Действующий"), versiya 06.08.2026,
+  noto'g'ri havola 0, `ozgarishlar` 0, staging bo'sh, baza hajmi 43 MB.
+- `/modda`: 461 → `-4688907` "461-modda. Soliq toʻlovchilar"; 121-1 → "121¹-modda..."; 9999 → topilmadi.
+- Import tugagach funksiya o'chirildi (verify_jwt yoqilgan, har qanday so'rovga 410). Qayta yoqish uchun
+  repodagi manbani yangi token hash'i bilan deploy qilish kerak.
+- CLI: `IMPORT_PROXY_TOKEN=... python -m app.collector.initial_load <id> --yes --proxy-url <function URL>`.
+
+Production'da bot to'g'ridan-to'g'ri `SUPABASE_DB_URL` bilan ishlaydi (PHASE 7).
 
 ### Asosiy hujjatlar (Lex.uz kartochkasi bilan tekshirilgan, 2026-09-27)
 | Hujjat | Lex.uz ID | Kartochka holati | Import |

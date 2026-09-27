@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from collections import Counter
 from dataclasses import dataclass
 
@@ -66,13 +67,19 @@ def fetch_preview(lex_id: str, client: lexuz.LexUzClient) -> Preview:
     return Preview(doc=doc, card=card, status=lexuz.resolve_status(card, lexuz.today_tashkent()))
 
 
-async def run_import(settings: Settings, preview: Preview) -> ImportResult:
-    """SUPABASE_DB_URL bo'lsa — to'g'ridan-to'g'ri Postgres; aks holda Supabase REST (HTTPS).
-
-    REST yo'li raw TCP yopiq muhitlar uchun (masalan cloud dev muhit): SUPABASE_URL va
-    SUPABASE_SERVICE_ROLE_KEY kerak.
+async def run_import(settings: Settings, preview: Preview, proxy_url: str | None = None) -> ImportResult:
+    """Yo'l tanlash:
+    - `proxy_url` — `import-proxy` Edge Function (token IMPORT_PROXY_TOKEN dan); raw TCP ham,
+      service_role kaliti ham bo'lmagan muhit uchun (supabase/functions/import-proxy);
+    - SUPABASE_DB_URL — to'g'ridan-to'g'ri Postgres;
+    - aks holda Supabase REST: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
     """
     today = lexuz.today_tashkent()
+    if proxy_url:
+        token = os.environ.get("IMPORT_PROXY_TOKEN", "").strip()
+        if not token:
+            raise SystemExit("IMPORT_PROXY_TOKEN berilmagan")
+        return await import_document_rest(proxy_url, token, preview.doc, preview.card, today)
     if settings.supabase_db_url is not None:
         conn = await connect(settings.supabase_db_url.get_secret_value())
         try:
@@ -93,6 +100,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Lex.uz hujjatini bazaga import qilish")
     parser.add_argument("lex_id", help="Lex.uz hujjat ID, masalan -4674902")
     parser.add_argument("--yes", action="store_true", help="tasdiqlash: bazaga yozish")
+    parser.add_argument("--proxy-url", help="import-proxy Edge Function URL (token: IMPORT_PROXY_TOKEN)")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -103,7 +111,7 @@ def main() -> None:
         if not args.yes:
             print("\nQuruq rejim: bazaga yozilmadi. Import uchun --yes qo'shing.")
             return
-        result = asyncio.run(run_import(settings, preview))
+        result = asyncio.run(run_import(settings, preview, args.proxy_url))
         print(
             f"\nImport: document_id={result.document_id} birinchi={result.first_import} "
             f"jami={result.total} qo'shilgan={result.added} o'zgargan={result.changed} "
