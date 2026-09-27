@@ -14,7 +14,7 @@ import pytest
 from app.collector.importer import import_document
 from app.database.connection import connect
 from app.retrieval.evaluation import CASES, SK
-from app.retrieval.query import analyze, normalize, stem
+from app.retrieval.query import analyze, normalize, stem, stem_variants
 from app.retrieval.search import retrieve
 from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, card, soliq_kodeksi
@@ -33,10 +33,34 @@ def test_normalize_matches_lexuz_apostrophes():
     "word,expected",
     [("soliq", "soli"), ("soligidan", "soli"), ("soliqni", "soli"), ("norezidentga", "norezident"),
      ("imtiyozidan", "imtiyoz"), ("shartlar", "shart"), ("saqlash", "saqla"), ("muddati", "muddat"),
-     ("hujjatini", "hujjat"), ("tolov", "tolov")],
+     ("hujjatini", "hujjat"), ("tolov", "tolov"),
+     # "-chi" + kelishik qo'shimchasi "chi" ning "i" sini yemaydi
+     ("tashuvchi", "tashuv"), ("tashuvchining", "tashuv"), ("tashuvchiga", "tashuv"), ("tashuvlarini", "tashuv")],
 )
 def test_stem(word, expected):
     assert stem(word) == expected
+
+
+@pytest.mark.parametrize(
+    "word,expected",
+    [("tashuvchi", ["tashi"]), ("tashuvlarini", ["tashi"]), ("tolov", ["tolash"]), ("tolovchi", ["tolash"]),
+     # faqat ot → fe'l: "foydalanish" ≠ "foydalanuvchi", "topshirish" ≠ "topshiruvchi"
+     ("tashish", []), ("foydalanish", []), ("topshirish", []), ("soliq", []), ("ish", [])],
+)
+def test_stem_variants(word, expected):
+    assert stem_variants(word) == expected
+
+
+def test_verb_family_is_one_or_group():
+    plan = analyze("Yuk tashuvchi uchun qanday imtiyozlar bor?", TODAY)
+    assert plan.terms == ["yuk", "tashuv", "imtiyoz"]
+    assert plan.ts_terms == ["yuk:*", "(tashuv:* | tashi:*)", "imtiyoz:*", "(yuk:* <-> (tashuv:* | tashi:*))"]
+    assert plan.ts_weights == [1.0, 1.0, 1.0, 0.6]
+
+
+def test_same_family_twice_counts_as_one_term():
+    plan = analyze("Yuk tashuvchi va yuk tashish", TODAY)
+    assert plan.terms == ["yuk", "tashuv"]
 
 
 def test_abbreviation_with_suffix_expands_synonym():

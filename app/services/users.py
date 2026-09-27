@@ -101,7 +101,8 @@ def _element_db_ids(fa: FinalAnswer) -> list[int]:
 async def log_conversation(conn: asyncpg.Connection, telegram_id: int, question: str, fa: FinalAnswer) -> None:
     used = [
         {"source_id": c.source.source_id, "element_id": c.source.element_id, "link": c.source.link,
-         "lex_id": c.article.lex_id, "modda": c.article.modda_raqami, "claim": c.claim}
+         "lex_id": c.article.lex_id, "modda": c.article.modda_raqami, "birlik": c.article.birlik,
+         "claim": c.claim}
         for c in fa.citations
     ]
     await conn.execute(

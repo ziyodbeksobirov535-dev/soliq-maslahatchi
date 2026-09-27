@@ -196,10 +196,15 @@ class LexUzClient:
                 return min(float(retry_after), self.backoff_max_seconds)
         return min(self.backoff_base_seconds * (2**attempt), self.backoff_max_seconds)
 
-    def fetch(self, url: str, *, use_cache: bool = True) -> str:
-        """URL matnini qaytaradi. Xatoda LexUzHTTPError / LexUzEmptyResponse / LexUzError."""
+    def fetch(self, url: str, *, use_cache: bool = True, data: dict[str, str] | None = None) -> str:
+        """URL matnini qaytaradi. Xatoda LexUzHTTPError / LexUzEmptyResponse / LexUzError.
+
+        `data` berilsa — POST (qidiruv natijalarining keyingi sahifasi, ASP.NET postback); POST keshlanmaydi.
+        """
         if urlsplit(url).hostname not in {"lex.uz", "www.lex.uz"}:
             raise ValueError(f"Faqat lex.uz manzillari qabul qilinadi: {url!r}")
+        if data is not None:
+            use_cache = False
 
         if use_cache:
             cached = self._cache_get(url)
@@ -217,7 +222,10 @@ class LexUzClient:
                 # har so'rov mustaqil bo'lishi uchun cookie saqlanmaydi.
                 self._http.cookies.clear()
                 try:
-                    response = self._http.get(url, headers=self._headers)
+                    if data is None:
+                        response = self._http.get(url, headers=self._headers)
+                    else:
+                        response = self._http.post(url, headers=self._headers, data=data)
                 except httpx.TransportError as exc:
                     error: LexUzError = LexUzError(f"Lex.uz tarmoq xatosi ({type(exc).__name__}): {url}")
                     retryable = True
@@ -820,7 +828,10 @@ def today_tashkent() -> date:
 
 RSS_URL = f"{BASE_URL}/uz/rss"
 _RSS_DOC_RE = re.compile(r"/docs/(-?\d+)")
-_RSS_NUMBER_RE = re.compile(r"№\s*([^\s.]+(?:\.[^\s.]+)*)")
+# Idoraviy hujjatlarda raqam o'rnida Adliya vazirligi ro'yxat raqami: "...buyrugʻi рег. № МЮ 3941."
+# (2026-09-27 RSS'da 131 dan 23 tasi) — raqam "3941", tur oxiridagi "рег" olib tashlanadi.
+_RSS_NUMBER_RE = re.compile(r"№\s*(?:МЮ\s+)?([^\s.]+(?:\.[^\s.]+)*)")
+_RSS_REG_SUFFIX_RE = re.compile(r"\s+рег$")
 
 
 @dataclass(frozen=True)
@@ -839,6 +850,7 @@ class RssItem:
 def _rss_description_fields(desc: str) -> tuple[str | None, str | None, date | None, date | None]:
     """"Oʻzbekiston Respublikasi Prezidentining Farmoni №PF-206. Qabul qilingan sana 23.09.2026. Kuchga kirish sanasi 25.09.2026"."""
     doc_type = desc.split("№")[0].strip(" .") or None if "№" in desc else (desc.split(".")[0].strip() or None)
+    doc_type = _RSS_REG_SUFFIX_RE.sub("", doc_type) if doc_type else None
     m = _RSS_NUMBER_RE.search(desc)
     number = m.group(1).rstrip(".") if m else None
     adoption = _parse_date(desc.split("Qabul qilingan sana", 1)[1]) if "Qabul qilingan sana" in desc else None
@@ -879,3 +891,164 @@ def parse_rss(xml_text: str) -> list[RssItem]:
             doc_type=doc_type, number=number, adoption_date=adoption, effective_date=effective, pub_date=pub,
         ))
     return items
+
+
+# --- Qidiruv (milliy qonunchilik: https://lex.uz/uz/search/nat) ---------------------
+#
+# Real sahifalar asosida (2026-09-27, `tests/fixtures/lexuz/search-*.html.gz`):
+# - URL: `/uz/search/nat?searchtitle=..&query=..&status=Y&form_id=..&lang=4` (sayt JS'idagi `goSearch`).
+# - Natijalar server tomonida: `tr.dd-table__main-item`, sahifada 20 ta; jami "<N> hujjat topildi".
+# - Holat belgisi: `span.lx_act_state i.status_code_<x>` — namunalarda `y` (amaldagi) va `r` (kuchini
+#   yo'qotgan). Boshqa qiymatlar xom holda saqlanadi; yakuniy holat baribir kartochkadan olinadi.
+# - Badge: "<tur>, DD.MM.YYYY yildagi <raqam>-son" yoki
+#   "<tur>, DD.MM.YYYY yilda ro'yxatdan o'tgan, ro'yxat raqami <raqam>" (idoraviy hujjatlar).
+# - Keyingi sahifa `?page=` bilan emas, ASP.NET postback: `form#Form1` yashirin maydonlari +
+#   `__EVENTTARGET=ucFoundActsControl$LinkButton1` bilan POST (cookie'siz ishlaydi). Oxirgi sahifada havola yo'q.
+
+SEARCH_NAT_URL = f"{BASE_URL}/uz/search/nat"
+# Sayt formasidagi "Shakli" ro'yxatidan (form_1 select).
+SEARCH_FORM_IDS = {
+    "kodeks": "3964", "qonun": "3968", "farmon": "3973", "qaror": "3972", "farmoyish": "588",
+    "nizom": "487", "tartib": "573", "qoidalar": "488", "reglament": "575", "yoriqnoma": "489",
+}
+SEARCH_STATUSES = frozenset({"Y", "R", "N"})  # Amaldagi / O'z kuchini yo'qotgan / Amalda emas
+_SEARCH_DOC_RE = re.compile(r"/docs/(-?\d+)/?$")
+_SEARCH_TOTAL_RE = re.compile(r"(\d[\d\s ]*)\s+hujjat topildi")
+_POSTBACK_RE = re.compile(r"__doPostBack\('([^']+)'")
+_APOS = "[‘'ʻ’`]"
+_BADGE_NUMBER_RE = re.compile(r"^(?P<type>.+?),\s*(?P<date>\d{2}\.\d{2}\.\d{4})\s+yildagi\s+(?P<num>.+?)-son$")
+_BADGE_REG_RE = re.compile(
+    rf"^(?P<type>.+?),\s*(?P<date>\d{{2}}\.\d{{2}}\.\d{{4}})\s+yilda\s+ro{_APOS}yxatdan\s+o{_APOS}tgan,"
+    rf"\s*ro{_APOS}yxat\s+raqami\s+(?P<reg>.+)$"
+)
+_NEXT_PAGE_ID = "ucFoundActsControl_LinkButton1"
+
+
+@dataclass(frozen=True)
+class SearchItem:
+    lex_id: str
+    title: str
+    url: str  # canonical: https://lex.uz/docs/<id>
+    doc_type: str | None
+    adoption_date: date | None  # "yildagi" sanasi yoki ro'yxatdan o'tgan sana
+    number: str | None  # "PF-140", "508"
+    reg_number: str | None  # Adliya vazirligi ro'yxat raqami ("2822-1")
+    site_status: str | None  # "y", "r", ... (qidiruv sahifasidagi belgi)
+    badge: str
+
+
+@dataclass(frozen=True)
+class SearchPage:
+    items: list[SearchItem]
+    total: int | None
+    next_url: str | None = None  # keyingi sahifa: shu URL'ga `next_data` bilan POST
+    next_data: dict[str, str] | None = None
+
+
+def search_url(*, title: str | None = None, text: str | None = None, status: str | None = "Y",
+               form: str | None = None, lang: str = "4", exact: bool = False) -> str:
+    """Qidiruv URL'i. `title` — hujjat nomida, `text` — matnida; `form` — `SEARCH_FORM_IDS` kaliti.
+
+    Sayt cheklovlari: matn 3–100 belgi; kamida bitta shart.
+    """
+    from urllib.parse import urlencode
+
+    params: dict[str, str] = {}
+    for name, value in (("searchtitle", title), ("query", text)):
+        if value is None:
+            continue
+        value = " ".join(value.split())
+        if not 3 <= len(value) <= 100:
+            raise ValueError(f"Qidiruv matni 3–100 belgi bo'lishi kerak: {value!r}")
+        params[name] = value
+        if exact:
+            params["exact2" if name == "searchtitle" else "exact"] = "1"
+    if form is not None:
+        if form not in SEARCH_FORM_IDS:
+            raise ValueError(f"Noma'lum hujjat shakli: {form!r}")
+        params["form_id"] = SEARCH_FORM_IDS[form]
+    if status is not None:
+        if status not in SEARCH_STATUSES:
+            raise ValueError(f"Noma'lum holat filtri: {status!r}")
+        params["status"] = status
+    if not params:
+        raise ValueError("Qidiruv uchun kamida bitta shart kerak")
+    params["lang"] = lang
+    return f"{SEARCH_NAT_URL}?{urlencode(params)}"
+
+
+def _parse_badge(badge: str) -> tuple[str | None, date | None, str | None, str | None]:
+    m = _BADGE_NUMBER_RE.match(badge)
+    if m:
+        return m.group("type").strip(), _parse_date(m.group("date")), m.group("num").strip(), None
+    m = _BADGE_REG_RE.match(badge)
+    if m:
+        return m.group("type").strip(), _parse_date(m.group("date")), None, m.group("reg").strip()
+    head = _DATE_RE.split(badge, maxsplit=1)[0].strip(" ,")
+    return head or None, _parse_date(badge), None, None
+
+
+def parse_search(html: str, page_url: str) -> SearchPage:
+    """Qidiruv natijalari sahifasi. `page_url` — shu sahifa URL'i (keyingi sahifa POST manzili uchun)."""
+    if not html or not html.strip():
+        raise LexUzError("Bo'sh qidiruv sahifasi")
+    soup = BeautifulSoup(html, "lxml")
+    items: list[SearchItem] = []
+    for row in soup.select("tr.dd-table__main-item"):
+        link = row.select_one(".dd-table__main-left-desc a[href]")
+        if link is None:
+            continue
+        m = _SEARCH_DOC_RE.search(urlsplit(link["href"]).path)
+        if not m:
+            continue
+        lex_id = m.group(1)
+        badge_el = row.select_one(".dd-table__main-extra .badge")
+        badge = _clean(badge_el.get_text(" ")) if badge_el else ""
+        doc_type, adoption, number, reg = _parse_badge(badge) if badge else (None, None, None, None)
+        site_status = None
+        for icon in row.select("span.lx_act_state i"):
+            for cls in icon.get("class", []):
+                if cls.startswith("status_code_"):
+                    site_status = cls.removeprefix("status_code_") or None
+        items.append(SearchItem(
+            lex_id=lex_id, title=_clean(link.get_text(" ")), url=doc_url(lex_id), doc_type=doc_type,
+            adoption_date=adoption, number=number, reg_number=reg, site_status=site_status, badge=badge,
+        ))
+
+    total = None
+    m = _SEARCH_TOTAL_RE.search(soup.get_text(" "))
+    if m:
+        total = int(re.sub(r"\D", "", m.group(1)))
+    elif not items:
+        total = 0
+
+    next_url = next_data = None
+    nxt = soup.find(id=_NEXT_PAGE_ID)
+    form = soup.find("form", id="Form1")
+    pb = _POSTBACK_RE.search(nxt.get("href", "")) if nxt is not None else None
+    if pb and form is not None:
+        next_data = {i["name"]: i.get("value", "") for i in form.find_all("input", type="hidden") if i.get("name")}
+        next_data.update({"__EVENTTARGET": pb.group(1), "__EVENTARGUMENT": ""})
+        next_url = urljoin(page_url, form.get("action") or page_url)
+    return SearchPage(items=items, total=total, next_url=next_url, next_data=next_data)
+
+
+def search(url: str, *, client: LexUzClient, max_pages: int = 50) -> tuple[list[SearchItem], int | None]:
+    """Qidiruvning barcha sahifalari (ko'pi bilan `max_pages`). Natija: (hujjatlar, sayt aytgan jami soni)."""
+    page = parse_search(client.fetch(url, use_cache=False), url)
+    total = page.total
+    items = list(page.items)
+    seen = {i.lex_id for i in items}
+    pages = 1
+    while page.next_url and page.next_data and pages < max_pages:
+        page_url = page.next_url
+        page = parse_search(client.fetch(page_url, data=page.next_data), page_url)
+        pages += 1
+        new = [i for i in page.items if i.lex_id not in seen]
+        if not new:  # sayt bir xil sahifani qaytarsa — cheksiz aylanishdan himoya
+            break
+        items.extend(new)
+        seen.update(i.lex_id for i in new)
+    if total is not None and len(items) < total and pages >= max_pages:
+        log.warning("lexuz search truncated url=%s got=%d total=%d pages=%d", url, len(items), total, pages)
+    return items, total

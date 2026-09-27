@@ -48,6 +48,8 @@ DEMONSTRATIVES = frozenset({"bu", "shu", "osha", "ushbu", "ana", "mana"})
 SUFFIXES = (
     "larining", "larning", "laridan", "larida", "lariga", "larini", "lardan", "larda", "larga",
     "larni", "lari", "lar",
+    # "-chi" + kelishik: "-ining"/"-iga" "chi" ning "i" sini yeb qo'ymasin ("tashuvchining" → "tashuv", "tashuvch" emas)
+    "chining", "chidan", "chida", "chiga", "chini",
     "sining", "sidan", "sida", "siga", "sini", "ining", "idan", "ida", "iga", "ini",
     "ning", "dagi", "dan", "tan", "da", "ga", "ka", "qa", "ni", "si",
     "anadi", "iladi", "ladi", "adi", "ydi", "ilgan", "gan", "ib",
@@ -96,11 +98,7 @@ def normalize(text: str) -> str:
     return (text or "").lower().translate(_APOSTROPHES)
 
 
-def stem(word: str) -> str:
-    """Ehtiyotkor o'zak: qo'shimchalarni kesadi, o'zak MIN_STEM dan qisqarmaydi.
-
-    Oxiridagi q/g/k tushiriladi (soliq/solig'i → soli), shunda prefiks qidiruvi ikkalasini topadi.
-    """
+def _strip_suffixes(word: str) -> str:
     w = word
     changed = True
     while changed:
@@ -110,11 +108,42 @@ def stem(word: str) -> str:
                 w = w[: -len(suf)]
                 changed = True
                 break
+    return w
+
+
+def stem(word: str) -> str:
+    """Ehtiyotkor o'zak: qo'shimchalarni kesadi, o'zak MIN_STEM dan qisqarmaydi.
+
+    Oxiridagi q/g/k tushiriladi (soliq/solig'i → soli), shunda prefiks qidiruvi ikkalasini topadi.
+    """
+    w = _strip_suffixes(word)
     if w.endswith(("ash", "ish")) and len(w) - 2 >= MIN_STEM + 1:
         w = w[:-2]  # saqlash → saqla, topshirish → topshiri
     if len(w) >= MIN_STEM + 1 and w[-1] in "qgk":
         w = w[:-1]
     return w
+
+
+# Fe'l oilasi: ot (-uv/-ov, "-uvchi"/"-ovchi" ham shu yerga tushadi) → harakat nomi (-ish/-ash).
+# Lex.uz matnida aralash: "yuk tashish" (18) va "yuk tashuvchi" (7), "to'lov" va "to'lash".
+# Faqat ot → fe'l yo'nalishi: teskarisi "foydalanish" → "foydalanuvchi", "topshirish" → "topshiruvchi"
+# kabi boshqa ma'noli so'zlarni qo'shib, spec savollarida natijani yomonlashtirdi (Supabase'da tekshirilgan).
+# Umumiy qisqa o'zak ("tash:*") ishlatilmaydi — u "tashqi", "tashkil", "tashabbus" ni ham topadi.
+_NOUN_TO_VERB = (("uv", "ish"), ("ov", "ash"))
+MIN_VERB_ROOT = 3
+
+
+def stem_variants(word: str) -> list[str]:
+    """Otning fe'l oilasidagi juft o'zagi: "tashuvchi" → ["tashi"], "to'lov" → ["tolash"].
+
+    Matnda bo'lmagan juft shakl zararsiz — qidiruvda asosiy o'zak bilan OR guruhida turadi.
+    """
+    w = _strip_suffixes(word)
+    for noun, verb in _NOUN_TO_VERB:
+        if w.endswith(noun) and len(w) - len(noun) >= MIN_VERB_ROOT:
+            alt = stem(w[: -len(noun)] + verb)
+            return [alt] if alt != stem(word) else []
+    return []
 
 
 @dataclass
@@ -124,6 +153,7 @@ class QueryPlan:
     terms: list[str] = field(default_factory=list)  # o'zaklar (stop-so'zlarsiz)
     bigrams: list[tuple[str, str]] = field(default_factory=list)  # yonma-yon so'zlar: "mehnat shartnoma"
     phrases: list[list[str]] = field(default_factory=list)  # sinonim iboralari (o'zaklar)
+    variants: dict[str, list[str]] = field(default_factory=dict)  # o'zak → fe'l oilasidagi juft o'zaklar
     article_number: str | None = None
     lex_ids: list[str] | None = None
     historical_date: date | None = None
@@ -134,17 +164,24 @@ class QueryPlan:
     @property
     def ts_terms(self) -> list[str]:
         """search_articles() uchun bo'laklar: har bir o'zak prefiks, sinonim iborasi AND-guruh."""
-        parts = [f"{t}:*" for t in self.terms]
-        parts += [f"({a}:* <-> {b}:*)" for a, b in self.bigrams]
+        parts = [self._term(t) for t in self.terms]
+        parts += [self._bigram(a, b) for a, b in self.bigrams]
         parts += ["(" + " & ".join(f"{t}:*" for t in phrase) + ")" for phrase in self.phrases]
         return list(dict.fromkeys(parts))
+
+    def _term(self, t: str) -> str:
+        forms = [t, *self.variants.get(t, ())]
+        return f"{t}:*" if len(forms) == 1 else "(" + " | ".join(f"{f}:*" for f in forms) + ")"
+
+    def _bigram(self, a: str, b: str) -> str:
+        return f"({self._term(a)} <-> {self._term(b)})"
 
     @property
     def ts_weights(self) -> list[float]:
         """ts_terms bilan bir xil tartibda: iboralar (bigram) pastroq vazn oladi — umumiy iboralar
         ("soliq majburiyati") kam uchragani uchun IDF'i baland, lekin mazmunan asosiy so'zdan kuchli emas."""
-        weights = {f"{t}:*": 1.0 for t in self.terms}
-        weights.update({f"({a}:* <-> {b}:*)": BIGRAM_WEIGHT for a, b in self.bigrams})
+        weights = {self._term(t): 1.0 for t in self.terms}
+        weights.update({self._bigram(a, b): BIGRAM_WEIGHT for a, b in self.bigrams})
         weights.update({"(" + " & ".join(f"{t}:*" for t in p) + ")": 1.0 for p in self.phrases})
         return [weights.get(part, 1.0) for part in self.ts_terms]
 
@@ -219,8 +256,12 @@ def analyze(question: str, today: date) -> QueryPlan:
         abbr = next((a for a in ABBREVIATIONS if w.startswith(a) and len(w) - len(a) <= 4), None)
         s = abbr or stem(w)
         if s not in seen:
+            variants = [] if abbr else stem_variants(w)
             seen.add(s)
+            seen.update(variants)  # "tashish ... tashuvchi" — bitta oila, bitta so'z
             plan.terms.append(s)
+            if variants:
+                plan.variants[s] = variants
         for key in (w, s):
             for phrase in SYNONYMS.get(key, ()):
                 stems = [stem(p) for p in phrase.split()]

@@ -15,3 +15,7 @@ Parser testlari faqat shu real sahifalar asosida yoziladi. Yangilash kerak bo'ls
 | `card1-pf-206.html` | https://lex.uz/actinfo/card1/-8509858 | hujjat raqami |
 | `agreement.html` | https://lex.uz/agreement | foydalanish shartlari |
 | `rss.xml` | https://lex.uz/uz/rss | PHASE 6 uchun |
+| `search-soliq-imtiyoz.html.gz` | https://lex.uz/uz/search/nat?searchtitle=soliq+imtiyoz&status=Y&lang=4 | qidiruv: 20 natija, jami 30, keyingi sahifa postback'i, ikki xil badge |
+| `search-soliq-imtiyoz-p2.html.gz` | o'sha, `LinkButton1` postback (POST) | oxirgi sahifa: 10 natija (21–30), "Keyingisi" havolasi yo'q |
+| `search-aralash-holat.html.gz` | https://lex.uz/uz/search/nat?searchtitle=soliq+imtiyoz&lang=4 | holat filtrisiz: `status_code_y` va `status_code_r`, jami 84 |
+| `search-bosh.html.gz` | https://lex.uz/uz/search/nat?searchtitle=qwzxqwzx&lang=4 | natija yo'q |

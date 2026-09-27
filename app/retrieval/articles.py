@@ -1,4 +1,7 @@
-"""Modda bo'yicha to'g'ridan-to'g'ri qidiruv (`/modda 461`, spec 6 va 20-bo'lim).
+"""Modda bo'yicha to'g'ridan-to'g'ri qidiruv (`/modda 461`, spec 6 va 20-bo'lim) va moddasiz hujjat bo'limi.
+
+Moddasiz hujjatlarda (farmon, qaror, nizom) qidiruv birligi — bo'lim (`elementlar.birlik`, migration 009):
+bob yoki ilova chegarasigacha bo'lgan matn. `get_section` uni `Article` ko'rinishida qaytaradi (`number=None`).
 
 Faqat bazadagi elementlar qaytariladi; havolalar ham bazadan (parser Lex.uz ID'sidan qurgan).
 Modda topilmasa — None (bot "topilmadi" deydi, taxmin qilmaydi).
@@ -40,14 +43,21 @@ class Article:
     document_name: str
     document_status: str
     current_version: str | None
-    number: str
+    number: str | None  # modda raqami; bo'limda None
     heading: ArticleElement
     body: list[ArticleElement]  # sarlavhadan keyingi matn, tartib bo'yicha
     notes: list[ArticleElement]  # o'zgartirish manbalari, tahrir havolalari, LexUZ sharhlari
+    birlik: str | None = None  # bo'lim kaliti (birinchi elementning Lex.uz ID'si); moddada None
+    section_name: str | None = None  # "1-ilova, 2-bob. ..." yoki "Asosiy qism"
 
     @property
     def link(self) -> str:
         return self.heading.link
+
+    @property
+    def title(self) -> str:
+        """Foydalanuvchiga ko'rsatiladigan nom: modda sarlavhasi yoki bo'lim nomi."""
+        return self.heading.text if self.number is not None else (self.section_name or self.heading.text)
 
     @property
     def has_future_changes(self) -> bool:
@@ -99,4 +109,39 @@ async def get_article(
         heading=heading,
         body=[e for e in elements if e.kind in _BODY_KINDS and e is not heading],
         notes=[e for e in elements if e.kind in _NOTE_KINDS],
+    )
+
+
+async def get_section(conn: asyncpg.Connection, lex_id: str, birlik: str) -> Article | None:
+    """Moddasiz hujjat bo'limi: sarlavha — `birlik` elementi, qolganlari tartib bo'yicha."""
+    doc = await conn.fetchrow(
+        "SELECT id, name, status, current_version FROM hujjatlar WHERE lex_id = $1", lex_id
+    )
+    if doc is None:
+        return None
+    rows = await conn.fetch(
+        """
+        SELECT id, element_id, kind, text, link, parent_element_id, amendment_note, future_version, birlik_nomi
+        FROM elementlar
+        WHERE document_id = $1 AND birlik = $2
+        ORDER BY order_no
+        """,
+        doc["id"],
+        birlik,
+    )
+    if not rows:
+        return None
+    elements = [ArticleElement(**{k: r[k] for k in ArticleElement.__dataclass_fields__}) for r in rows]
+    heading = next((e for e in elements if e.element_id == birlik), elements[0])
+    return Article(
+        document_lex_id=lex_id,
+        document_name=doc["name"],
+        document_status=doc["status"],
+        current_version=doc["current_version"],
+        number=None,
+        heading=heading,
+        body=[e for e in elements if e is not heading and e.kind in (*_BODY_KINDS, "header")],
+        notes=[],
+        birlik=birlik,
+        section_name=rows[0]["birlik_nomi"],
     )

@@ -84,7 +84,7 @@ def format_final_answer(fa: FinalAnswer) -> str:
         a: SourceArticle = cs[0].article
         claims = "; ".join(dict.fromkeys(c.claim for c in cs))
         status = "" if a.document_status == "amalda" else f" ({esc(STATUS_UZ.get(a.document_status, a.document_status))})"
-        lines.append(f"• {esc(a.document_name)}, {link(url, a.heading.text)}{status} — {esc(claims)}")
+        lines.append(f"• {esc(a.document_name)}, {link(url, a.title)}{status} — {esc(claims)}")
     return "\n".join(lines)
 
 

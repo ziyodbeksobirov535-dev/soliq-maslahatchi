@@ -192,9 +192,125 @@ bilan to'liq test o'tkaziladi. Faqat `py_compile`/import tekshiruvi va RSS fixtu
       botga ulangan (`python main.py`), job xatosi bot/scheduler'ni yiqitmaydi
 - [x] `/yangiliklar` — oxirgi 7 kun, relevant; metadata, holat, xulosa, Lex.uz havolasi
 
+### Filtr kengaytirildi va topilgan hujjatlar kuzatiladi (2026-09-27, foydalanuvchi so'rovi)
+- RSS (`https://lex.uz/uz/rss`) barcha yangi hujjatlarni beradi: jonli RSS'da 131 tadan 13 Prezident farmoni,
+  17 Prezident qarori, 28 VM qarori, 8 qonun — manba yetarli, filtr muammo edi.
+- Eski filtr substring bo'yicha ishlardi → soxta mosliklar: "olish haqida" → "ish haqi", "tartibga solish" →
+  "soli", "akkreditatsiya" → "kredit", "Yangibozor" → "bozor". Endi faqat so'z boshidan mos keladi.
+- Ikki daraja: `KUCHLI_SOZLAR` (soliq, BHMS/BHS, schyotlar rejasi, imtiyoz, litsenziya, ruxsatnoma, xabardor
+  qilish, ma'muriy reglament, xususiylashtirish, elektron tijorat...) — kalitsiz ham relevant;
+  `SOHA_SOZLARI` (qishloq xo'jaligi, qurilish, tibbiyot, IT, bank, transport...) — faqat fast model tekshiradi.
+  Fixture'da: 27 kuchli, 48 soha, 56 mos emas. Yangi topilganlar: BHS "Yagona schyotlar rejasi", xususiylashtirish
+  farmoni, kichik biznes farmoni, elektron tijorat qonuni, litsenziyalash tartib-taomillari.
+- News prompt: istalgan sohadagi imtiyoz/subsidiya/hisobot talablari va faoliyat yuritish tartiblari ahamiyatli.
+- `weekly_refresh_job` endi 6 asosiy hujjat + RSS'dan import qilingan (kuchini yo'qotmagan) hujjatlarni yangilaydi
+  (`tracked_documents`) — farmon/qarorga o'zgartirish kiritilsa, bir hafta ichida bazada yangilanadi.
+- Jonli (lokal nusxa): `jobs rss` — 27 relevant, 2 run'da 27 import, xato 0; kuzatiladigan hujjatlar 33 ta.
+- Testlar ishga tushirilmadi (foydalanuvchi so'rovi) — `py_compile` va jonli job tekshiruvi.
+
+### Lex.uz qidiruvi: amaldagi eski hujjatlar (2026-09-27, foydalanuvchi so'rovi)
+RSS faqat yangi hujjatlarni beradi; eski farmon/qarorlar, imtiyozlar va faoliyat tartiblari qidiruv orqali topiladi.
+
+Real sahifalardan aniqlangan faktlar (`tests/fixtures/lexuz/search-*.html.gz`):
+- URL `/uz/search/nat?searchtitle=..&query=..&status=Y&form_id=..&lang=4` (sayt JS'idagi `goSearch`). `form_id`:
+  Farmon 3973, Qaror 3972, Qonun 3968, Nizom 487, Tartib 573, Qoidalar 488, Reglament 575.
+- Natijalar server tomonida: `tr.dd-table__main-item`, 20 ta/sahifa, "<N> hujjat topildi".
+- `?page=` ishlamaydi — keyingi sahifa ASP.NET postback (`__VIEWSTATE` + `__EVENTTARGET=ucFoundActsControl$LinkButton1`,
+  POST, cookie'siz ishlaydi). Oxirgi sahifada havola yo'q.
+- Badge: "<tur>, DD.MM.YYYY yildagi PF-140-son" yoki "..., DD.MM.YYYY yilda ro'yxatdan o'tgan, ro'yxat raqami 2822-1".
+- Holat belgisi `status_code_y` / `status_code_r`; boshqalari namunada yo'q → xom saqlanadi, yakuniy holat kartochkadan.
+- Qidiruv to'liq so'z bo'yicha: "bojxona to'lov" → 0, "bojxona to'lovlari" → 8.
+
+Bajarildi:
+- [x] `lexuz.search_url`, `parse_search`, `search` (sahifalash), `LexUzClient.fetch(data=...)` — POST, keshsiz
+      (GET yo'li o'zgarmagan)
+- [x] `migrations/008_topilgan_hujjatlar.sql` — topilganlar, qaysi qidiruv topgani, relevantlik, import urinishlari
+- [x] `app/collector/discovery.py` — 16 qidiruv (soliq, imtiyoz, aksiz, QQS, buxgalteriya, moliyaviy hisobot,
+      bojxona, subsidiya, litsenziya, ruxsatnoma, ruxsat berish, xabardor qilish, faoliyat tartiblari, tadbirkorlik);
+      relevant = nomida kuchli so'z; import: avval Prezident/VM hujjatlari, keyin yangilari; 3 martagacha urinish
+- [x] Job'lar: `discover` (shanba 04:10), `import-found` (har kuni 08:10, `DISCOVERY_DAILY_LIMIT`, sukut 0 = o'chiq);
+      `tracked_documents` qidiruvdan import qilinganlarni ham haftalik yangilaydi
+- [x] Jonli (lokal nusxa): 16 qidiruv 1m42s, 1 198 natija → 1 059 noyob, 986 relevant (188 Prezident, 317 VM,
+      72 qonun, ~400 idoraviy); hamma qidiruvda olingan = sayt aytgan jami. `import-found --limit 10` — 7 yangi,
+      3 tasi bazada bor edi, xato 0, ~2 s/hujjat
+- [x] Hajm bahosi: element ~2,3 KB → 986 hujjat × ~80 element ≈ 180 MB (Supabase Free 500 MB ichida)
+
+### Moddasiz hujjatlar qidiruvda (2026-09-27, foydalanuvchi tasdig'i bilan)
+Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqari 33 hujjatdan 32 tasida modda yo'q
+(bandlar, boblar, ilovalar) → ular savol-javobda chiqmasdi.
+- [x] `migrations/009_bolimlar.sql`: `elementlar.birlik`, `birlik_nomi`; `hisobla_birliklar(document_id)` —
+      moddaga kirmagan matn bo'limlarga: chegara — bob sarlavhasi, "N-ILOVA" qatori, hujjat sarlavhasi, modda.
+      Nomi: "1-ilova, 2-bob. ..." / "Asosiy qism". Katta bo'lim ~4 000 belgidan keyin band boshida bo'laklanadi
+      ("..., 12-band"); mezon — kodeks moddalari (mediana ~1 100, 90% ≤ 3 000 belgi). `finish_import` har importda
+      qayta hisoblaydi (003 dagi funksiya aynan, faqat `PERFORM` qo'shilgan); mavjud hujjatlar migratsiyada.
+- [x] `search_articles`: modda yoki bo'lim birligi (`m:`/`b:`); natijada `birlik`, `birlik_nomi`. 4 000 belgidan
+      katta bo'lim bahosi `1/(1+ln(hajm/4000))` ga kamayadi (bitta ulkan jadval hamma so'zni qamramasin).
+      Moddalar bahosi o'zgarmagan.
+- [x] Python: `get_section`, `ArticleHit.unit_key`, `SourceArticle.key/title`, promptda `<bolim nomi=...>`,
+      javob va Telegram formatida bo'lim nomi; iqtibos/havola avvalgidek element darajasida (bazadan).
+- [x] Tekshiruv (lokal nusxa, 39 hujjat): spec'dagi 10 savol — natija PHASE 3 bilan aynan bir xil (top-1 6/8,
+      asosiy top-3 6/8, top-6 8/8). Yangi hujjatlar bo'yicha 8 savol: kerakli qaror top-1 da 7/8 (avval 0/8).
+      Soxta LLM bilan to'liq zanjir: bo'limdan iqtibos validatsiyadan o'tdi, havola bandga (`#-8221820`).
+- Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `test_database` dagi migratsiya ro'yxati 009 bilan yangilandi.
+
+### Kunlik import yoqildi, Supabase (2026-09-27, foydalanuvchi tasdig'i bilan)
+- [x] `DISCOVERY_DAILY_LIMIT=50` — `.env.example` va lokal `.env`; har kuni 08:10.
+- [x] Lokal birinchi partiya: 50 hujjat 2m30s, xato 0; baza +5 MB (~100 KB/hujjat → 986 ta ≈ 100 MB, avvalgi
+      180 MB bahosidan kam). Bo'limlar import paytida avtomatik (`finish_import` → `hisobla_birliklar`).
+      Navbatda 926 ta. Ikkala baholash o'zgarmadi (spec 10 savol: 6/8, 6/8, 8/8; yangi qarorlar: 7/8).
+- [x] Supabase: 001–007 checksum'lari lokal fayllar bilan mos. **008 qo'llandi** (`apply_migration` +
+      `schema_migrations` checksum `525cd752…`); jadval bor, RLS yoqilgan, baza 63 MB; security advisor — faqat
+      ataylab qoldirilgan `rls_enabled_no_policy` (INFO).
+- [x] **Supabase'ga 009 qo'llandi** (2026-09-27, foydalanuvchi ruxsati bilan, MacBook sessiyasidan): fayl matni +
+      `schema_migrations` yozuvi bitta tranzaksiyada (runner'dagi advisory lock bilan), checksum `2af5fac1…`.
+      Oldin tekshirildi: 001–008 checksum'lari lokal fayllar bilan mos; `finish_import` 003 dagidan faqat
+      `PERFORM hisobla_birliklar` bilan farq qiladi. Natija: `birlik`/`birlik_nomi` ustunlari bor; 5 kodeksda
+      bo'lim 0 (hammasi moddada), buxgalteriya qonunida 1 bo'lim; `search_articles` ishlaydi (moddalar qaytadi);
+      anon'da `search_articles`/`hisobla_birliklar` EXECUTE yo'q; baza 63 MB. Supabase'da hozircha 6 hujjat,
+      `topilgan_hujjatlar` bo'sh — qidiruv/kunlik import faqat lokal nusxada sinalgan, Supabase'da bot ishga
+      tushgach boshlanadi.
+
+### Keyingi qadam
+- [x] "yuk tashuvchi" — so'z o'zagi (2026-09-27, MacBook). Tekshiruvda aniqlandi: "tashuvchi" va "tashuvlarini"
+      allaqachon bitta o'zakka (`tashuv`) tushardi; haqiqiy sabab — Lex.uz matnida asosan "yuk tashish" (Supabase:
+      18 marta, "tashuvchi" 7), `stem` esa `tashi`/`tashuv`/`tash` ga ajratadi. Tuzatildi (`app/retrieval/query.py`):
+      - `-chi` + kelishik ("tashuvchining", "tashuvchiga") endi `tashuv`, avval `tashuvch` edi;
+      - `stem_variants`: ot → fe'l juft o'zagi (-uv → -ish, -ov → -ash: tashuvchi → tashi, to'lov → to'lash);
+        qidiruvda bitta OR guruhi `(tashuv:* | tashi:*)` — bitta so'z sanaladi, qamrov o'zgarmaydi.
+      - Teskari yo'nalish (fe'l → ot) sinab ko'rildi va olib tashlandi: "foydalanish" → "foydalanuvchi",
+        "topshirish" → "topshiruvchi" spec savollarida natijani yomonlashtirdi. "tash:*" ishlatilmaydi (tashqi, tashkil).
+      - Supabase'da eski/yangi reja solishtirildi: spec 10 savoldan faqat 2 tasining rejasi o'zgaradi; top-1,
+        asosiy top-3, top-6 ko'rsatkichlari o'zgarmadi; norezident savolida top-6 da kutilgan moddalar 4 → 5.
+        "Yuk tashuvchi uchun imtiyozlar" → Fuqarolik kodeksi tashish bobi (709–724), avval aralash natija.
+      - Eski sessiyadagi "8 qaror" savollari repoda saqlanmagan — ular bo'yicha qayta o'lchanmadi (qarorlar
+        Supabase'da hali yo'q). Bazasiz testlar: `test_stem`, `test_stem_variants`, OR guruh; jami 180 passed.
+        DB'li `test_search` (sk_db) kutilgan qiymatlari lokal Postgres bilan qayta tekshirilishi kerak.
+- [x] Kirill yozuvidagi RSS — tekshirildi (2026-09-28), muammo yo'q: fixture (131) va jonli RSS (122, bitta
+      so'rov) da nomi kirillcha element **yo'q**. Yagona element — Senat qarori: turi kirillcha
+      ("Ўзбекистон Республикаси Олий Мажлиси Сенатининг қарори", №СҚ-355-V), nomi lotincha va "ko'chmas mulk"
+      bo'yicha filtrga tushadi. Regressiya testi qo'shildi; kod o'zgartirilmadi. Kirillcha nomlar paydo bo'lsa —
+      kalit so'zlar uchun kirill→lotin transliteratsiya qo'shish mumkin.
+
 ### Test qilinishi kerak (oxirida)
-- [ ] parse_rss fixture testlari, keyword filtri, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
-      scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007)
+- [x] Bazasiz testlar (2026-09-27, MacBook, Python 3.12): `tests/test_collector.py` — 41 ta: parse_search
+      (4 fixture: badge ikki turi, holat y/r, jami, postback, bo'sh), search_url, search sahifalash (soxta client:
+      postback, takror sahifa himoyasi, max_pages), parse_rss (131 element, maydonlar, XXE yo'q), keyword filtri
+      (27/48/56, so'z boshi), discovery (so'rovlarni birlashtirish, xato izolyatsiyasi, relevantlik, import_pending),
+      process_rss (kalitsiz / soxta LLM / LLM xatosi), format_news, scheduler job'lari. Jami: 165 passed,
+      100 skipped (DB).
+- [x] Testlar topgan xato tuzatildi: RSS'dagi idoraviy hujjatlar ("...buyrugʻi рег. № МЮ 3941", 131 dan 23 ta)
+      raqami `МЮ`, turi "... рег" bo'lib qolardi → endi raqam `3941`, turdan "рег" olib tashlanadi.
+- [x] DB testlari (2026-09-28, MacBook, foydalanuvchi ruxsati bilan lokal PostgreSQL 17 — faqat testlar uchun,
+      Supabase ma'lumotlarisiz). `tests/test_sections.py` — 11 ta: hisobla_birliklar (asosiy qism, bob sarlavhasi,
+      izoh/imzo/"1-ILOVA"/matnsiz bob kirmaydi, ilova nomi, 4 000+ band bo'yicha va 8 000+ o'lcham bo'yicha
+      bo'laklash, moddalar NULL, idempotent, qayta importda qayta hisob), search_articles bo'lim + modda natijasi,
+      get_section, `<bolim>` konteksti, discovery upsert (so'rovlar birlashadi), import_pending (tartib, xato
+      urinishi), tracked_documents (kuchini yo'qotgan chiqmaydi), recent_news (7 kun, relevant, holat).
+      test_database 007–009 va test_bot /yangiliklar allaqachon bor edi. **Jami: 292 passed, 0 skipped.**
+      Mac'da test bazasini ishga tushirish (fon xizmati emas):
+      `LC_ALL=en_US.UTF-8 /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /opt/homebrew/var/postgresql@17 -o "-p 5433 -c listen_addresses=127.0.0.1" -l /opt/homebrew/var/postgresql@17/test-server.log start`,
+      so'ng `TEST_DATABASE_URL=postgresql://macbook@127.0.0.1:5433/postgres .venv/bin/python -m pytest`
+      (to'xtatish: `... pg_ctl -D /opt/homebrew/var/postgresql@17 stop`).
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 
 ## PHASE 7 — Production deployment ✅ kod va qo'llanma (testlar keyinroq)
