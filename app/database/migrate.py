@@ -67,6 +67,8 @@ def discover(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
 
 async def applied(conn: asyncpg.Connection) -> dict[str, str]:
     await conn.execute(_CREATE_TABLE)
+    # Supabase public API orqali ko'rinmasligi uchun (boshqa jadvallar kabi).
+    await conn.execute("ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY")
     rows = await conn.fetch("SELECT version, checksum FROM schema_migrations")
     return {r["version"]: r["checksum"] for r in rows}
 

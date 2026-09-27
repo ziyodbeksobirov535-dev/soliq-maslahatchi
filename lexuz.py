@@ -394,8 +394,12 @@ def _parse_date(text: str | None) -> date | None:
         return None
 
 
-def _version_date(token: str) -> date | None:
+def version_date(token: str) -> date | None:
+    """Versiya tokenidan sana: "12.12.2026 01" → 2026-12-12."""
     return _parse_date(token)
+
+
+_version_date = version_date
 
 
 def _clean(text: str) -> str:

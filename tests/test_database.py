@@ -9,6 +9,7 @@ import pytest
 
 import lexuz
 from app.database import migrate as migrate_mod
+from app.database.connection import connect
 from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, soliq_kodeksi
 
@@ -50,7 +51,7 @@ def element_row(e: lexuz.Element, document_id: int) -> tuple:
 
 
 async def with_conn(dsn, fn):
-    conn = await asyncpg.connect(dsn)
+    conn = await connect(dsn)
     try:
         return await fn(conn)
     finally:
@@ -80,7 +81,7 @@ def test_all_tables_created(db):
 
 def test_migrate_is_idempotent(db):
     assert run(migrate_mod.migrate(db)) == []
-    assert run(migrate_mod.status(db)) == [("001_init", True)]
+    assert run(migrate_mod.status(db)) == [("001_init", True), ("002_hardening", True)]
 
 
 def test_changed_applied_migration_is_rejected(db, tmp_path):
@@ -110,6 +111,16 @@ def test_bad_migration_name(tmp_path):
     (tmp_path / "init.sql").write_text("SELECT 1;")
     with pytest.raises(migrate_mod.MigrationError):
         migrate_mod.discover(tmp_path)
+
+
+def test_trgm_extension_moved_out_of_public(db):
+    async def check(conn):
+        return await conn.fetchval(
+            "SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace "
+            "WHERE e.extname = 'pg_trgm'"
+        )
+
+    assert run(with_conn(db, check)) == "extensions"
 
 
 def test_rls_enabled_everywhere(db):
@@ -383,5 +394,5 @@ def test_knowledge_record_key_unique_and_lex_check_default(db):
 
 
 def test_migrations_dir_contains_init():
-    assert [m.version for m in migrate_mod.discover()] == ["001_init"]
+    assert [m.version for m in migrate_mod.discover()] == ["001_init", "002_hardening"]
     assert Path(migrate_mod.MIGRATIONS_DIR).name == "migrations"
