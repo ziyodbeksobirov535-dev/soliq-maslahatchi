@@ -16,7 +16,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 import lexuz
-from app.collector.importer import ImportResult, import_document
+from app.collector.importer import ImportResult, import_document, import_document_rest
 from app.config import Settings, get_settings
 from app.database.connection import connect
 from app.utils.logging import request_context, setup_logging
@@ -66,12 +66,27 @@ def fetch_preview(lex_id: str, client: lexuz.LexUzClient) -> Preview:
     return Preview(doc=doc, card=card, status=lexuz.resolve_status(card, lexuz.today_tashkent()))
 
 
-async def run_import(dsn: str, preview: Preview) -> ImportResult:
-    conn = await connect(dsn)
-    try:
-        return await import_document(conn, preview.doc, preview.card, lexuz.today_tashkent())
-    finally:
-        await conn.close()
+async def run_import(settings: Settings, preview: Preview) -> ImportResult:
+    """SUPABASE_DB_URL bo'lsa — to'g'ridan-to'g'ri Postgres; aks holda Supabase REST (HTTPS).
+
+    REST yo'li raw TCP yopiq muhitlar uchun (masalan cloud dev muhit): SUPABASE_URL va
+    SUPABASE_SERVICE_ROLE_KEY kerak.
+    """
+    today = lexuz.today_tashkent()
+    if settings.supabase_db_url is not None:
+        conn = await connect(settings.supabase_db_url.get_secret_value())
+        try:
+            return await import_document(conn, preview.doc, preview.card, today)
+        finally:
+            await conn.close()
+    settings.require("supabase_url", "supabase_service_role_key")
+    return await import_document_rest(
+        settings.supabase_url,
+        settings.supabase_service_role_key.get_secret_value(),
+        preview.doc,
+        preview.card,
+        today,
+    )
 
 
 def main() -> None:
@@ -88,8 +103,7 @@ def main() -> None:
         if not args.yes:
             print("\nQuruq rejim: bazaga yozilmadi. Import uchun --yes qo'shing.")
             return
-        settings.require("supabase_db_url")
-        result = asyncio.run(run_import(settings.supabase_db_url.get_secret_value(), preview))
+        result = asyncio.run(run_import(settings, preview))
         print(
             f"\nImport: document_id={result.document_id} birinchi={result.first_import} "
             f"jami={result.total} qo'shilgan={result.added} o'zgargan={result.changed} "

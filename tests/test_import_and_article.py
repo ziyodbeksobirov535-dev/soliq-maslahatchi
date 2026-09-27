@@ -257,3 +257,131 @@ def test_every_article_link_points_to_existing_anchor_in_source_html(imported_db
 
     ids = {r["element_id"] for r in run(with_conn(imported_db, scenario))}
     assert ids <= anchors
+
+
+# --- REST (Supabase PostgREST) yo'li ---------------------------------------------
+
+
+def _fake_postgrest(dsn, calls, fail_rpc=False):
+    """PostgREST'ning biz ishlatadigan 3 ta endpoint'ini lokal Postgres ustida taqlid qiladi."""
+    import json as _json
+
+    import httpx
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.headers.get("authorization")))
+        assert request.headers["apikey"] == "service-key"
+        conn = await connect(dsn)
+        try:
+            if request.method == "POST" and request.url.path == "/rest/v1/import_staging":
+                rows = _json.loads(request.content)
+                await conn.executemany(
+                    "INSERT INTO import_staging (import_id, seq, element) VALUES ($1::uuid, $2, $3::jsonb)",
+                    [(r["import_id"], r["seq"], _json.dumps(r["element"])) for r in rows],
+                )
+                return httpx.Response(201)
+            if request.method == "POST" and request.url.path == "/rest/v1/rpc/finish_import":
+                if fail_rpc:
+                    return httpx.Response(500, json={"message": "boom"})
+                body = _json.loads(request.content)
+                raw = await conn.fetchval(
+                    "SELECT finish_import($1::uuid, $2::jsonb, $3::date)",
+                    body["p_import_id"], _json.dumps(body["p_doc"]), date.fromisoformat(body["p_today"]),
+                )
+                return httpx.Response(200, content=raw, headers={"content-type": "application/json"})
+            if request.method == "DELETE" and request.url.path == "/rest/v1/import_staging":
+                import_id = request.url.params["import_id"].removeprefix("eq.")
+                await conn.execute("DELETE FROM import_staging WHERE import_id = $1::uuid", import_id)
+                return httpx.Response(204)
+            return httpx.Response(404)
+        finally:
+            await conn.close()
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def test_rest_import_matches_direct_import(db):
+    from app.collector.importer import import_document_rest
+
+    doc = soliq_kodeksi()
+    calls = []
+
+    async def scenario():
+        conn = await connect(db)
+        try:
+            await reset(conn)
+        finally:
+            await conn.close()
+        async with _fake_postgrest(db, calls) as client:
+            first = await import_document_rest(
+                "https://example.supabase.co/", "service-key", doc, sk_card(), TODAY, http_client=client
+            )
+            second = await import_document_rest(
+                "https://example.supabase.co", "service-key", doc, sk_card(), TODAY, http_client=client
+            )
+        conn = await connect(db)
+        try:
+            count = await conn.fetchval(
+                "SELECT count(*) FROM elementlar e JOIN hujjatlar h ON h.id = e.document_id WHERE h.lex_id = $1", SK_ID
+            )
+            staging = await conn.fetchval("SELECT count(*) FROM import_staging")
+            art = await get_article(conn, "461")
+        finally:
+            await conn.close()
+        return first, second, count, staging, art
+
+    first, second, count, staging, art = run(scenario())
+    assert first.first_import and first.total == len(doc.elements)
+    assert (second.added, second.changed, second.removed) == (0, 0, 0)
+    assert count == len(doc.elements)
+    assert staging == 0
+    assert art.heading.element_id == "-4688907"
+    chunks = [c for c in calls if c[1] == "/rest/v1/import_staging"]
+    assert len(chunks) == 2 * -(-len(doc.elements) // 500)  # ikki import × bo'laklar soni
+    assert all(c[2] == "Bearer service-key" for c in calls)
+
+
+def test_rest_import_cleans_staging_on_failure(db):
+    import httpx
+
+    from app.collector.importer import import_document_rest
+
+    calls = []
+
+    async def scenario():
+        async with _fake_postgrest(db, calls, fail_rpc=True) as client:
+            with pytest.raises(httpx.HTTPStatusError):
+                await import_document_rest(
+                    "https://example.supabase.co", "service-key", soliq_kodeksi(), sk_card(), TODAY,
+                    http_client=client, chunk_size=3000,
+                )
+        conn = await connect(db)
+        try:
+            return await conn.fetchval("SELECT count(*) FROM import_staging")
+        finally:
+            await conn.close()
+
+    assert run(scenario()) == 0
+    assert calls[-1][0] == "DELETE"
+
+
+def test_finish_import_rejects_duplicate_element_ids(db):
+    import json as _json
+    import uuid as _uuid
+
+    async def scenario(conn):
+        import_id = _uuid.uuid4()
+        el = {"element_id": "-1", "order_no": 1, "type": "ACT_TEXT", "kind": "text", "text": "a",
+              "text_hash": "h", "link": "https://lex.uz/docs/-5#-1"}
+        async with conn.transaction():  # xatoda staging ham qaytariladi
+            await conn.executemany(
+                "INSERT INTO import_staging (import_id, seq, element) VALUES ($1, $2, $3::jsonb)",
+                [(import_id, 1, _json.dumps(el)), (import_id, 2, _json.dumps(el))],
+            )
+            doc = {"lex_id": "-5", "name": "x", "url": "https://lex.uz/docs/-5"}
+            await conn.fetchval("SELECT finish_import($1, $2::jsonb, $3)", import_id, _json.dumps(doc), TODAY)
+
+    import asyncpg
+
+    with pytest.raises(asyncpg.RaiseError):
+        run(with_conn(db, scenario))

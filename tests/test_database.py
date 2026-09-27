@@ -14,6 +14,7 @@ from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, soliq_kodeksi
 
 TABLES = {
+    "import_staging",
     "hujjatlar",
     "hujjat_versiyalari",
     "elementlar",
@@ -81,7 +82,7 @@ def test_all_tables_created(db):
 
 def test_migrate_is_idempotent(db):
     assert run(migrate_mod.migrate(db)) == []
-    assert run(migrate_mod.status(db)) == [("001_init", True), ("002_hardening", True)]
+    assert run(migrate_mod.status(db)) == [("001_init", True), ("002_hardening", True), ("003_import_rpc", True)]
 
 
 def test_changed_applied_migration_is_rejected(db, tmp_path):
@@ -394,5 +395,5 @@ def test_knowledge_record_key_unique_and_lex_check_default(db):
 
 
 def test_migrations_dir_contains_init():
-    assert [m.version for m in migrate_mod.discover()] == ["001_init", "002_hardening"]
+    assert [m.version for m in migrate_mod.discover()] == ["001_init", "002_hardening", "003_import_rpc"]
     assert Path(migrate_mod.MIGRATIONS_DIR).name == "migrations"
