@@ -1,4 +1,7 @@
-"""Retrieval (spec 6–7): savol → reja → PostgreSQL qidiruvi → 3–6 ta modda.
+"""Retrieval (spec 6–7): savol → reja → PostgreSQL qidiruvi → 3–6 ta modda yoki bo'lim.
+
+Moddasiz hujjatlar (farmon, qaror, nizom) bo'limlar bo'yicha qidiriladi (migration 009): natijada
+`modda_raqami = None`, `birlik` va `birlik_nomi` to'ldiriladi.
 
 Qat'iy qoidalar:
 - aniq modda so'ralsa ("461-modda") — birinchi navbatda to'g'ridan-to'g'ri olinadi;
@@ -41,13 +44,20 @@ class ArticleHit:
     lex_id: str
     document_name: str
     document_status: str
-    modda_raqami: str
+    modda_raqami: str | None  # bo'limda None
     heading: str
     heading_element_id: str
     heading_link: str
     score: float
     matched_terms: int
     matched: list[MatchedElement]
+    birlik: str | None = None  # moddada None
+    birlik_nomi: str | None = None
+
+    @property
+    def unit_key(self) -> tuple[str, str]:
+        """Hujjat ichidagi birlik: ("m", modda) yoki ("b", bo'lim)."""
+        return ("m", self.modda_raqami) if self.modda_raqami is not None else ("b", self.birlik or "")
 
 
 @dataclass
@@ -87,6 +97,7 @@ async def search_articles(
         matched = r["matched"]
         if isinstance(matched, str):
             matched = json.loads(matched)
+        matched = matched or []
         hits.append(
             ArticleHit(
                 lex_id=r["lex_id"],
@@ -99,6 +110,8 @@ async def search_articles(
                 score=float(r["score"]),
                 matched_terms=r["matched_terms"],
                 matched=[MatchedElement(**{k: m[k] for k in MatchedElement.__dataclass_fields__}) for m in matched],
+                birlik=r["birlik"],
+                birlik_nomi=r["birlik_nomi"],
             )
         )
     return hits

@@ -24,7 +24,7 @@ import asyncpg
 from app.ai.client import LLM, LLMError, Usage
 from app.ai.prompts import SourceArticle, SourceElement, render_user_message
 from app.ai.validation import ValidatedAnswer, validate_answer
-from app.retrieval.articles import Article, get_article
+from app.retrieval.articles import Article, get_article, get_section
 from app.retrieval.query import analyze
 from app.retrieval.search import ArticleHit, SearchResult, retrieve, search_articles
 
@@ -95,23 +95,28 @@ def article_to_source(article: Article, matched_element_ids: set[str] | None = N
         heading=conv(article.heading),
         elements=[conv(e) for e in body],
         truncated=truncated,
+        birlik=article.birlik,
+        section_name=article.section_name,
     )
 
 
 async def _articles_from_hits(conn: asyncpg.Connection, hits: list[ArticleHit]) -> list[SourceArticle]:
     out = []
     for h in hits:
-        art = await get_article(conn, h.modda_raqami, h.lex_id)
+        if h.modda_raqami is not None:
+            art = await get_article(conn, h.modda_raqami, h.lex_id)
+        else:
+            art = await get_section(conn, h.lex_id, h.birlik) if h.birlik else None
         if art is not None:
             out.append(article_to_source(art, {m.element_id for m in h.matched}))
     return out
 
 
 def _merge_hits(groups: list[list[ArticleHit]], limit: int) -> list[ArticleHit]:
-    best: dict[tuple[str, str], ArticleHit] = {}
+    best: dict[tuple[str, tuple[str, str]], ArticleHit] = {}
     for hits in groups:
         for h in hits:
-            key = (h.lex_id, h.modda_raqami)
+            key = (h.lex_id, h.unit_key)
             if key not in best or h.score > best[key].score:
                 best[key] = h
     return sorted(best.values(), key=lambda h: h.score, reverse=True)[:limit]
@@ -134,7 +139,7 @@ def format_answer(validated: ValidatedAnswer) -> str:
     for link, cs in grouped.items():
         a = cs[0].article
         claims = "; ".join(dict.fromkeys(c.claim for c in cs))
-        lines.append(f"• {a.document_name}, {a.heading.text} — {claims}")
+        lines.append(f"• {a.document_name}, {a.title} — {claims}")
         lines.append(f"  {link}")
     return "\n".join(lines).strip()
 
@@ -146,7 +151,7 @@ def format_insufficient(articles: list[SourceArticle], needs_more: list[str]) ->
     if articles:
         lines += ["", "Tekshirish uchun eng yaqin manbalar:"]
         for a in articles[:3]:
-            lines.append(f"• {a.document_name}, {a.heading.text}")
+            lines.append(f"• {a.document_name}, {a.title}")
             lines.append(f"  {a.heading.link}")
     return "\n".join(lines)
 
@@ -218,13 +223,13 @@ async def answer_question(
             removed += validated.removed_urls
 
             if validated.needs_more and rounds < MAX_EXTRA_ROUNDS:
-                present = {(a.lex_id, a.modda_raqami) for a in articles}
+                present = {(a.lex_id, *a.key[1:]) for a in articles}
                 new_hits: list[ArticleHit] = []
                 for q in validated.needs_more[:3]:
                     queries.append(q)
                     for h in await _search_text(conn, q, today, None):
-                        if (h.lex_id, h.modda_raqami) not in present and len(new_hits) < EXTRA_PER_ROUND:
-                            present.add((h.lex_id, h.modda_raqami))
+                        if (h.lex_id, *h.unit_key) not in present and len(new_hits) < EXTRA_PER_ROUND:
+                            present.add((h.lex_id, *h.unit_key))
                             new_hits.append(h)
                 rounds += 1
                 if new_hits:

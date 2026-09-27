@@ -19,8 +19,10 @@ MANBA QOIDALARI (buzilmaydi):
    summa yoki muddatni ishlatma — ular eskirgan bo'lishi mumkin.
 2. Har bir muhim huquqiy da'vo uchun citations ro'yxatiga manba qo'sh: source_id — aynan
    <element id="..."> qiymati (masalan EL-123). Kontekstda yo'q ID'ni yozma.
+   Manba <modda> (kodeks/qonun moddasi) yoki <bolim> (farmon, qaror, nizomning bob/ilova qismi) bo'ladi —
+   ikkalasi ham rasmiy manba, iqtibos qoidasi bir xil.
 3. Javob matniga URL, havola yoki Lex.uz manzilini yozma — havolalarni tizim o'zi qo'shadi.
-   Modda raqamini faqat manbadagi sarlavhadan ol.
+   Modda yoki band raqamini faqat manbadagi matndan ol.
 4. Manbalar savolga javob berish uchun yetarli bo'lmasa: qat'iy xulosa berma, needs_more ga
    nimani qidirish kerakligini aniq yoz (masalan "QQS to'lovchisi bo'lish chegarasi"),
    confidence = "low".
@@ -62,17 +64,34 @@ class SourceElement:
 
 @dataclass(frozen=True)
 class SourceArticle:
+    """Kontekstdagi birlik: modda yoki moddasiz hujjat bo'limi (`modda_raqami=None`, `birlik` to'ldirilgan)."""
+
     lex_id: str
     document_name: str
     document_status: str
     current_version: str | None
-    modda_raqami: str
+    modda_raqami: str | None
     heading: SourceElement
     elements: list[SourceElement]  # sarlavhadan keyingi, tartib bo'yicha
     truncated: bool = False
+    birlik: str | None = None
+    section_name: str | None = None
 
     def all_elements(self) -> list[SourceElement]:
         return [self.heading, *self.elements]
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        if self.modda_raqami is not None:
+            return (self.lex_id, "m", self.modda_raqami)
+        return (self.lex_id, "b", self.birlik or "")
+
+    @property
+    def title(self) -> str:
+        """Foydalanuvchiga ko'rsatiladigan nom: modda sarlavhasi yoki bo'lim nomi."""
+        if self.modda_raqami is not None:
+            return self.heading.text
+        return self.section_name or self.heading.text
 
 
 def _x(text: str) -> str:
@@ -83,13 +102,17 @@ def render_sources(articles: list[SourceArticle]) -> str:
     parts = ["<manbalar>"]
     for a in articles:
         truncated = ' qisqartirilgan="ha"' if a.truncated else ""
-        parts.append(
-            f'<modda hujjat="{_x(a.document_name)}" lex_id="{_x(a.lex_id)}" holat="{_x(a.document_status)}"'
-            f' versiya="{_x(a.current_version or "")}" raqam="{_x(a.modda_raqami)}"{truncated}>'
-        )
+        common = (f'hujjat="{_x(a.document_name)}" lex_id="{_x(a.lex_id)}" holat="{_x(a.document_status)}"'
+                  f' versiya="{_x(a.current_version or "")}"')
+        if a.modda_raqami is not None:
+            tag = "modda"
+            parts.append(f'<modda {common} raqam="{_x(a.modda_raqami)}"{truncated}>')
+        else:
+            tag = "bolim"
+            parts.append(f'<bolim {common} nomi="{_x(a.section_name or "")}"{truncated}>')
         for el in a.all_elements():
             parts.append(f'<element id="{_x(el.source_id)}" tur="{_x(el.kind)}">{_x(el.text)}</element>')
-        parts.append("</modda>")
+        parts.append(f"</{tag}>")
     parts.append("</manbalar>")
     return "\n".join(parts)
 

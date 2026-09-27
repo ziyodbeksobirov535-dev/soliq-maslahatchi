@@ -235,17 +235,33 @@ Bajarildi:
       3 tasi bazada bor edi, xato 0, ~2 s/hujjat
 - [x] Hajm bahosi: element ~2,3 KB → 986 hujjat × ~80 element ≈ 180 MB (Supabase Free 500 MB ichida)
 
+### Moddasiz hujjatlar qidiruvda (2026-09-27, foydalanuvchi tasdig'i bilan)
+Muammo: `search_articles` faqat moddalar bo'yicha ishlardi; kodekslardan tashqari 33 hujjatdan 32 tasida modda yo'q
+(bandlar, boblar, ilovalar) → ular savol-javobda chiqmasdi.
+- [x] `migrations/009_bolimlar.sql`: `elementlar.birlik`, `birlik_nomi`; `hisobla_birliklar(document_id)` —
+      moddaga kirmagan matn bo'limlarga: chegara — bob sarlavhasi, "N-ILOVA" qatori, hujjat sarlavhasi, modda.
+      Nomi: "1-ilova, 2-bob. ..." / "Asosiy qism". Katta bo'lim ~4 000 belgidan keyin band boshida bo'laklanadi
+      ("..., 12-band"); mezon — kodeks moddalari (mediana ~1 100, 90% ≤ 3 000 belgi). `finish_import` har importda
+      qayta hisoblaydi (003 dagi funksiya aynan, faqat `PERFORM` qo'shilgan); mavjud hujjatlar migratsiyada.
+- [x] `search_articles`: modda yoki bo'lim birligi (`m:`/`b:`); natijada `birlik`, `birlik_nomi`. 4 000 belgidan
+      katta bo'lim bahosi `1/(1+ln(hajm/4000))` ga kamayadi (bitta ulkan jadval hamma so'zni qamramasin).
+      Moddalar bahosi o'zgarmagan.
+- [x] Python: `get_section`, `ArticleHit.unit_key`, `SourceArticle.key/title`, promptda `<bolim nomi=...>`,
+      javob va Telegram formatida bo'lim nomi; iqtibos/havola avvalgidek element darajasida (bazadan).
+- [x] Tekshiruv (lokal nusxa, 39 hujjat): spec'dagi 10 savol — natija PHASE 3 bilan aynan bir xil (top-1 6/8,
+      asosiy top-3 6/8, top-6 8/8). Yangi hujjatlar bo'yicha 8 savol: kerakli qaror top-1 da 7/8 (avval 0/8).
+      Soxta LLM bilan to'liq zanjir: bo'limdan iqtibos validatsiyadan o'tdi, havola bandga (`#-8221820`).
+- Testlar ishga tushirilmadi (foydalanuvchi so'rovi); `test_database` dagi migratsiya ro'yxati 009 bilan yangilandi.
+
 ### Keyingi qadam (tasdiq kerak)
-- [ ] **Qidiruv (PHASE 3) moddasiz hujjatlarni ko'rmaydi.** `search_articles` faqat `modda_raqami IS NOT NULL` va
-      modda sarlavhasi (`kind='article'`) bor elementlarni oladi. Kodekslardan tashqari 33 hujjatdan 32 tasida modda
-      yo'q (bandlar) → ular bazada, haftalik yangilanadi, `/yangiliklar` da ko'rinadi, lekin savol-javobda chiqmaydi.
-      Kerak: migration 009 (moddasiz hujjatda birlik = band/element), `search.py`, javob va iqtibos formati, testlar.
-- [ ] Shundan keyin `DISCOVERY_DAILY_LIMIT=50` (≈20 kun, kuniga ~2 daqiqa) va Supabase'ga 008 migratsiyasi.
+- [ ] `DISCOVERY_DAILY_LIMIT=50` (≈20 kun, kuniga ~2 daqiqa) va Supabase'ga 008–009 migratsiyalari.
+- [ ] "yuk tashuvchi" ↔ "yuk tashuvlarini" — so'z o'zagi mos kelmaydi (`query.stem`), qaror topilmadi (8 dan 1).
 - [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
 
 ### Test qilinishi kerak (oxirida)
 - [ ] parse_search (4 fixture: badge, holat, jami, postback, bo'sh), search sahifalash (soxta client), discovery
-      upsert/import_pending, parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
+      upsert/import_pending, hisobla_birliklar (bob/ilova/bo'laklash), search_articles bo'lim natijasi,
+      get_section, <bolim> konteksti, parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
       scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007, 008)
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 

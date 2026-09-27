@@ -106,7 +106,7 @@ Tekshirish:
 
 ```bash
 sudo -u soliq .venv/bin/python main.py --check          # sozlamalar to'liqmi
-sudo -u soliq .venv/bin/python -m app.database.migrate --status   # 001–008 applied bo'lishi kerak
+sudo -u soliq .venv/bin/python -m app.database.migrate --status   # 001–009 applied bo'lishi kerak
 sudo -u soliq .venv/bin/python -m app.health            # baza ulanishi (rss hozircha ok:false bo'lishi normal)
 ```
 

@@ -43,7 +43,7 @@ async def run_no_llm(dsn: str, questions: list[str], today: date) -> list[dict]:
             msg = render_user_message(q, articles, today)
             out.append({
                 "question": q, "status": result.status,
-                "articles": [f"{a.lex_id} {a.heading.text[:70]}" for a in articles],
+                "articles": [f"{a.lex_id} {a.title[:70]}" for a in articles],
                 "context_chars": len(msg), "system_chars": len(SYSTEM_PROMPT),
             })
     finally:
@@ -63,7 +63,7 @@ async def run_llm(dsn: str, questions: list[str], today: date) -> list[dict]:
             out.append({
                 "question": q, "status": fa.status, "confidence": fa.confidence, "rounds": fa.rounds,
                 "search_queries": fa.search_queries,
-                "sources": [f"{a.lex_id} {a.heading.text[:70]}" for a in fa.source_articles],
+                "sources": [f"{a.lex_id} {a.title[:70]}" for a in fa.source_articles],
                 "citations": [{"source_id": c.source.source_id, "link": c.source.link, "claim": c.claim} for c in fa.citations],
                 "rejected_source_ids": fa.rejected_source_ids, "removed_urls": fa.removed_urls,
                 "needs_more": fa.needs_more,
