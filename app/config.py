@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     lexuz_timeout_seconds: float = Field(default=30.0, gt=0)
     lexuz_cache_dir: str = ".cache/lexuz"
     lexuz_cache_ttl_hours: float = Field(default=24.0, ge=0)
+    # Qidiruvda topilgan eski hujjatlardan kuniga nechtasi import qilinadi (0 = o'chiq; ro'yxat baribir yig'iladi).
+    discovery_daily_limit: int = Field(default=0, ge=0)
 
     log_level: str = "INFO"
 

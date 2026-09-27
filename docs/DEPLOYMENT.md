@@ -98,6 +98,7 @@ To'ldiriladigan qiymatlar (qo'shtirnoqsiz, bo'sh joysiz yozing):
 | `SUPABASE_SERVICE_ROLE_KEY` | Bot uchun **kerak emas** — bo'sh qoldiring |
 | `ADMIN_TELEGRAM_IDS` | Sizning Telegram ID raqamingiz (**@userinfobot** ga yozing). Bir nechta bo'lsa vergul bilan |
 | `DAILY_QUESTION_LIMIT` | Kunlik savol limiti (sukut 20) |
+| `DISCOVERY_DAILY_LIMIT` | Lex.uz qidiruvida topilgan eski hujjatlardan kuniga nechtasi import qilinadi (sukut 0 = o'chiq) |
 
 Secret'larni hech qachon chatga, git'ga yoki skrinshotga qo'ymang. `.env` `.gitignore` da.
 
@@ -105,7 +106,7 @@ Tekshirish:
 
 ```bash
 sudo -u soliq .venv/bin/python main.py --check          # sozlamalar to'liqmi
-sudo -u soliq .venv/bin/python -m app.database.migrate --status   # 001–007 applied bo'lishi kerak
+sudo -u soliq .venv/bin/python -m app.database.migrate --status   # 001–008 applied bo'lishi kerak
 sudo -u soliq .venv/bin/python -m app.health            # baza ulanishi (rss hozircha ok:false bo'lishi normal)
 ```
 
@@ -133,7 +134,9 @@ Alohida o'rnatish **kerak emas** — bot jarayoni ichida ishlaydi (Asia/Tashkent
 |---|---|
 | har kuni 07:10 | Lex.uz RSS → soliq/biznesga oid yangiliklar (`/yangiliklar`) |
 | har kuni 07:40 | Kuchga kirish sanasi kelgan hujjatlarni qayta tekshirish |
-| yakshanba 03:20 | 6 ta asosiy kodeksni to'liq yangilash (o'zgarishlar `ozgarishlar` jadvaliga) |
+| yakshanba 03:20 | Kuzatiladigan hujjatlarni to'liq yangilash: 6 ta kodeks + RSS va qidiruvdan import qilinganlar (o'zgarishlar `ozgarishlar` jadvaliga) |
+| shanba 04:10 | Lex.uz qidiruvi: amaldagi eski farmon/qaror/tartiblar ro'yxati (~90 so'rov, hujjatlar yuklanmaydi) |
+| har kuni 08:10 | Topilgan hujjatlardan `DISCOVERY_DAILY_LIMIT` tasini import qilish (0 bo'lsa o'tkazib yuboriladi) |
 | har 5 daqiqa | heartbeat fayli (health check uchun) |
 
 Birinchi kuni yangiliklar bo'sh bo'lmasligi uchun RSS'ni qo'lda bir marta ishga tushiring:
@@ -142,7 +145,8 @@ Birinchi kuni yangiliklar bo'sh bo'lmasligi uchun RSS'ni qo'lda bir marta ishga 
 sudo -u soliq .venv/bin/python -m app.collector.jobs rss
 ```
 
-Qo'lda boshqa job'lar: `... -m app.collector.jobs future` yoki `... refresh`.
+Qo'lda boshqa job'lar: `... -m app.collector.jobs future`, `... refresh`, `... discover`,
+`... import-found --limit 20`.
 
 ## 6. Loglar
 

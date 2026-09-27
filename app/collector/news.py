@@ -79,9 +79,13 @@ class RssRunStats:
     usage: Usage = field(default_factory=Usage)
 
 
+def text_keyword_hits(text: str) -> list[str]:
+    norm = normalize(f" {text} ")
+    return [k for k, rx in _KALIT_RE.items() if rx.search(norm)]
+
+
 def keyword_hits(item: lexuz.RssItem) -> list[str]:
-    text = normalize(f" {item.title} {item.description} ")
-    return [k for k, rx in _KALIT_RE.items() if rx.search(text)]
+    return text_keyword_hits(f"{item.title} {item.description}")
 
 
 def has_strong_hit(hits: list[str]) -> bool:

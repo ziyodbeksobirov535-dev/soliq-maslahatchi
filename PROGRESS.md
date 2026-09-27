@@ -208,14 +208,45 @@ bilan to'liq test o'tkaziladi. Faqat `py_compile`/import tekshiruvi va RSS fixtu
 - Jonli (lokal nusxa): `jobs rss` — 27 relevant, 2 run'da 27 import, xato 0; kuzatiladigan hujjatlar 33 ta.
 - Testlar ishga tushirilmadi (foydalanuvchi so'rovi) — `py_compile` va jonli job tekshiruvi.
 
+### Lex.uz qidiruvi: amaldagi eski hujjatlar (2026-09-27, foydalanuvchi so'rovi)
+RSS faqat yangi hujjatlarni beradi; eski farmon/qarorlar, imtiyozlar va faoliyat tartiblari qidiruv orqali topiladi.
+
+Real sahifalardan aniqlangan faktlar (`tests/fixtures/lexuz/search-*.html.gz`):
+- URL `/uz/search/nat?searchtitle=..&query=..&status=Y&form_id=..&lang=4` (sayt JS'idagi `goSearch`). `form_id`:
+  Farmon 3973, Qaror 3972, Qonun 3968, Nizom 487, Tartib 573, Qoidalar 488, Reglament 575.
+- Natijalar server tomonida: `tr.dd-table__main-item`, 20 ta/sahifa, "<N> hujjat topildi".
+- `?page=` ishlamaydi — keyingi sahifa ASP.NET postback (`__VIEWSTATE` + `__EVENTTARGET=ucFoundActsControl$LinkButton1`,
+  POST, cookie'siz ishlaydi). Oxirgi sahifada havola yo'q.
+- Badge: "<tur>, DD.MM.YYYY yildagi PF-140-son" yoki "..., DD.MM.YYYY yilda ro'yxatdan o'tgan, ro'yxat raqami 2822-1".
+- Holat belgisi `status_code_y` / `status_code_r`; boshqalari namunada yo'q → xom saqlanadi, yakuniy holat kartochkadan.
+- Qidiruv to'liq so'z bo'yicha: "bojxona to'lov" → 0, "bojxona to'lovlari" → 8.
+
+Bajarildi:
+- [x] `lexuz.search_url`, `parse_search`, `search` (sahifalash), `LexUzClient.fetch(data=...)` — POST, keshsiz
+      (GET yo'li o'zgarmagan)
+- [x] `migrations/008_topilgan_hujjatlar.sql` — topilganlar, qaysi qidiruv topgani, relevantlik, import urinishlari
+- [x] `app/collector/discovery.py` — 16 qidiruv (soliq, imtiyoz, aksiz, QQS, buxgalteriya, moliyaviy hisobot,
+      bojxona, subsidiya, litsenziya, ruxsatnoma, ruxsat berish, xabardor qilish, faoliyat tartiblari, tadbirkorlik);
+      relevant = nomida kuchli so'z; import: avval Prezident/VM hujjatlari, keyin yangilari; 3 martagacha urinish
+- [x] Job'lar: `discover` (shanba 04:10), `import-found` (har kuni 08:10, `DISCOVERY_DAILY_LIMIT`, sukut 0 = o'chiq);
+      `tracked_documents` qidiruvdan import qilinganlarni ham haftalik yangilaydi
+- [x] Jonli (lokal nusxa): 16 qidiruv 1m42s, 1 198 natija → 1 059 noyob, 986 relevant (188 Prezident, 317 VM,
+      72 qonun, ~400 idoraviy); hamma qidiruvda olingan = sayt aytgan jami. `import-found --limit 10` — 7 yangi,
+      3 tasi bazada bor edi, xato 0, ~2 s/hujjat
+- [x] Hajm bahosi: element ~2,3 KB → 986 hujjat × ~80 element ≈ 180 MB (Supabase Free 500 MB ichida)
+
 ### Keyingi qadam (tasdiq kerak)
-- [ ] RSS faqat yangi hujjatlarni beradi. Amaldagi eski faoliyat tartiblari/imtiyozlarni topish uchun Lex.uz
-      qidiruv sahifasi parseri kerak — avval real HTML namunasi `tests/fixtures/lexuz/` ga olinadi.
+- [ ] **Qidiruv (PHASE 3) moddasiz hujjatlarni ko'rmaydi.** `search_articles` faqat `modda_raqami IS NOT NULL` va
+      modda sarlavhasi (`kind='article'`) bor elementlarni oladi. Kodekslardan tashqari 33 hujjatdan 32 tasida modda
+      yo'q (bandlar) → ular bazada, haftalik yangilanadi, `/yangiliklar` da ko'rinadi, lekin savol-javobda chiqmaydi.
+      Kerak: migration 009 (moddasiz hujjatda birlik = band/element), `search.py`, javob va iqtibos formati, testlar.
+- [ ] Shundan keyin `DISCOVERY_DAILY_LIMIT=50` (≈20 kun, kuniga ~2 daqiqa) va Supabase'ga 008 migratsiyasi.
 - [ ] Kirill yozuvidagi RSS elementlari filtrga tushmaydi (hozir 1 ta).
 
 ### Test qilinishi kerak (oxirida)
-- [ ] parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
-      scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007)
+- [ ] parse_search (4 fixture: badge, holat, jami, postback, bo'sh), search sahifalash (soxta client), discovery
+      upsert/import_pending, parse_rss fixture testlari, keyword filtri (so'z boshi, kuchli/soha), tracked_documents, process_rss (soxta LLM/soxta Lex.uz), recent_news, /yangiliklar,
+      scheduler job ro'yxati; eski testlar yangilandi: test_bot (/yangiliklar), test_database (007, 008)
 - [ ] Jonli: `python -m app.collector.jobs rss` (Lex.uz + baza)
 
 ## PHASE 7 — Production deployment ✅ kod va qo'llanma (testlar keyinroq)
