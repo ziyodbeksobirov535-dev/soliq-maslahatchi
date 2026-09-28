@@ -419,3 +419,25 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 8. **Admin paneli** — /stat kengaytmasi: 👎 baholangan javoblar, topilmagan savollar (baza to'ldirish uchun), xabarlar holati.
 9. **Ovozli savol** — Telegram voice → matn (keyinchalik).
 10. **Baza kengayishi** — kunlik import (`DISCOVERY_DAILY_LIMIT=50`) Supabase'da yoqilsa ~20 kunda ~1 000 farmon/qaror.
+
+## PHASE 9 — Yangi imkoniyatlar (2026-09-28, foydalanuvchi so'rovi: takliflar 2–10; 1 — server keyinroq)
+- [x] RSS tuzatishi: model xato bersa (kredit yo'q) faqat kuchli so'z relevant. 08:48 dagi qo'lda RSS'da 67 relevant
+      (44 tasi faqat soha so'zi bilan — xato) → bot 09:00 dan oldin to'xtatildi, tuzatish ruxsat kutmoqda.
+- [x] 2. Kanalga joylash: `NEWS_CHANNEL` — tasdiqlangan xabar kanalga bir marta (`xabarlar.kanal_xabar_id`),
+      faqat havola tugmalari (Lex.uz, "Botda savol berish").
+- [x] 3. Obuna: `/obuna`, Telegram Payments (`PAYMENT_PROVIDER_TOKEN` — Click/Payme, UZS), pre-checkout tekshiruvi,
+      to'lov bir marta (`tolovlar.telegram_charge_id`), `/obuna_ber <id> <kun>`, `/obuna_ol <id>`;
+      premium — `PREMIUM_DAILY_LIMIT`. Token yo'q — `PAYMENT_CONTACT` ko'rsatiladi.
+- [x] 4. Profil Claude promptida (`<profil>`, escape; manba emas).
+- [x] 5. `/hisobla`: QQS qo'shish/ajratish (12%, 258), JSHDS (12%, 381), aylanma (4/2/1%, 467 jadvali), penya
+      (MB stavkasi/300, 110 — stavkani foydalanuvchi kiritadi). Iqtiboslar real Soliq kodeksi matnida testlanadi.
+- [x] 6. `/kalendar`: aylanma/JSHDS/ijtimoiy — 15-kun (470, 389, 407), QQS — 20-kun (273, davr 259), foyda —
+      chorakdan keyin 20-kun (339, davr 338); profil rejimi bo'yicha filtr; eslatma roziligi, 09:30 da 3 kun oldin
+      va muddat kuni, bir marta (`eslatmalar_yuborilgan`). Dam olish kuni ko'chirilishi hisobga olinmagan.
+- [x] 7. Davomiy savol: "u/bu/shu/unda..." + ≤3 so'z → oxirgi 15 daqiqadagi savol bilan birga qidiriladi (izoh 🔗).
+- [x] 8. `/admin`: salbiy baholar, javobsiz savollar, xabarlar holati (kutayotganini qayta ko'rish).
+- [x] 9. Ovozli xabar: STT xizmati yo'q — "matn bilan yozing" javobi; rasm/hujjat — "faqat matn".
+- [ ] 10. Baza kengayishi: Supabase'da `jobs discover` (~90 Lex.uz so'rovi) + `DISCOVERY_DAILY_LIMIT=50` — ruxsat kutilmoqda.
+- Testlar: 412 passed (lokal PostgreSQL), bazasiz 250 passed.
+- [ ] Supabase'ga **012** (ruxsat bilan), noto'g'ri relevant 44 yangilikni tuzatish (ruxsat bilan), botni oddiy
+      rejimda qayta ishga tushirish.
