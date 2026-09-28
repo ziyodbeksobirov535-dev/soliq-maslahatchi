@@ -471,3 +471,31 @@ def test_voice_and_non_text_messages_get_friendly_reply(bot_db):
     s = feed(bot_db, [voice, photo], user_id=6300)
     assert "Ovozli xabarlarni hozircha tushunmayman" in s.sent[0].text
     assert "faqat matnli savollarni" in s.sent[1].text
+
+
+# --- /hisobla ---------------------------------------------------------------------------
+
+
+def test_calculator_dialog(bot_db):
+    s = feed(bot_db, ["/hisobla", callback(6400, "h:qqs_qosh"), "10 000 000"], user_id=6400)
+    kinds = [b.callback_data for row in s.sent[0].reply_markup.inline_keyboard for b in row]
+    assert kinds == ["h:qqs_qosh", "h:qqs_ajrat", "h:jshds", "h:aylanma", "h:penya"]
+    text = s.sent[-1].text
+    assert "QQS (12%): <b>1 200 000</b> so'm" in text and "Jami (QQS bilan): <b>11 200 000</b> so'm" in text
+    assert '<a href="https://lex.uz/docs/-4674902#' in text and "258-modda" in text
+    buttons = [b.callback_data for row in s.sent[-1].reply_markup.inline_keyboard for b in row]
+    assert buttons == ["h:menu", "v:m:-4674902:258"]
+
+
+def test_calculator_turnover_rate_choice_and_bad_input(bot_db):
+    s = feed(bot_db, [callback(6500, "h:aylanma"), callback(6500, "h:aylanma:2", 101), "abc", "1 000 000"],
+             user_id=6500)
+    assert [b.callback_data for row in s.sent[0].reply_markup.inline_keyboard for b in row] == \
+        ["h:aylanma:4", "h:aylanma:2", "h:aylanma:1"]
+    assert "Sonni tushunmadim" in s.sent[2].text
+    assert "Soliq (2%): <b>20 000</b> so'm" in s.sent[3].text
+
+
+def test_calculator_question_instead_of_number_goes_to_question(bot_db):
+    s = feed(bot_db, [callback(6600, "h:jshds"), "Soliq imtiyozlari shartlari qanday?"], user_id=6600, llm=None)
+    assert s.sent[1].text.startswith("Hozir to'liq javob tayyorlay olmadim")

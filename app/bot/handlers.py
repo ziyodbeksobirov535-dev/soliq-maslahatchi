@@ -25,11 +25,18 @@ from aiogram.enums import ChatAction, ParseMode
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, ErrorEvent, InlineKeyboardMarkup, LinkPreviewOptions, Message
+from aiogram.types import (
+    CallbackQuery,
+    ErrorEvent,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LinkPreviewOptions,
+    Message,
+)
 
 from app.ai.client import LLM
 from app.bot.admin import admin_menu, negative_ratings, news_overview, unanswered
-from app.bot.formatting import esc, format_article, format_final_answer, format_news, split_message
+from app.bot.formatting import esc, format_article, format_final_answer, format_news, link, split_message
 from app.bot.keyboards import (
     PROFILE_BUTTON_TITLES,
     PROFILE_OPTIONS,
@@ -43,6 +50,7 @@ from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import is_followup, normalize
+from app.services import kalkulyator
 from app.services.answer import answer_question, answer_without_llm
 from app.services.xabarlar import decide, show_preview
 from app.services.users import (
@@ -86,6 +94,7 @@ START_TEXT = (
     "Lotin yoki kirill yozuvida yozishingiz mumkin; ruscha savoldagi soliq atamalarini ham tushunaman.\n\n"
     "Buyruqlar:\n"
     "/modda 461 — Soliq kodeksi moddasi (boshqa hujjat: /modda 106 mehnat). Faqat raqam yozsangiz ham bo'ladi.\n"
+    "/hisobla — soliq kalkulyatori (QQS, JSHDS, aylanma solig'i, penya)\n"
     "/profil — soha, soliq rejimi va tashkiliy shakl (tugmalar bilan)\n"
     "/yangiliklar — qonunchilikdagi yangiliklar\n\n"
     "Hozir bazada: Soliq, Mehnat, Fuqarolik, Bojxona kodekslari va Buxgalteriya hisobi to'g'risidagi qonun.\n"
@@ -97,6 +106,7 @@ MODDA_PROMPT = "Qaysi modda? Raqamini yozing, masalan: <b>461</b> yoki <b>106 me
 class Waiting(StatesGroup):
     modda = State()  # /modda raqamsiz — keyingi xabar modda raqami
     profile_value = State()  # /profil → "Boshqa" — keyingi xabar maydon qiymati
+    calc = State()  # /hisobla — keyingi xabar summa (yoki penya uchun uch son)
 
 
 async def send_long(message: Message, html_text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
@@ -324,6 +334,76 @@ async def on_xabar_decision(query: CallbackQuery, pool: asyncpg.Pool, settings: 
     await query.answer(result)
 
 
+# --- /hisobla ---------------------------------------------------------------------------
+
+
+def calc_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=title, callback_data=f"h:{kind}")] for kind, title in kalkulyator.KINDS.items()])
+
+
+def aylanma_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=title, callback_data=f"h:aylanma:{rate}")]
+        for rate, title in kalkulyator.AYLANMA_TITLES.items()])
+
+
+async def cmd_hisobla(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("🧮 <b>Soliq kalkulyatori</b> — nimani hisoblaymiz?", parse_mode=ParseMode.HTML,
+                         reply_markup=calc_menu())
+
+
+async def on_calc_button(query: CallbackQuery, state: FSMContext) -> None:
+    parts = (query.data or "").split(":")
+    kind = parts[1] if len(parts) > 1 else ""
+    await query.answer()
+    if kind == "menu":
+        await state.clear()
+        await query.message.answer("🧮 Nimani hisoblaymiz?", reply_markup=calc_menu())
+        return
+    if kind not in kalkulyator.KINDS:
+        return
+    if kind == "aylanma" and len(parts) == 2:
+        await query.message.answer("Qaysi stavka? (467-modda jadvali)", reply_markup=aylanma_menu())
+        return
+    rate = parts[2] if kind == "aylanma" and len(parts) == 3 and parts[2] in kalkulyator.AYLANMA else "4"
+    await state.set_state(Waiting.calc)
+    await state.update_data(kind=kind, rate=rate)
+    await query.message.answer(kalkulyator.PROMPTS[kind], parse_mode=ParseMode.HTML)
+
+
+async def on_calc_value(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
+                        state: FSMContext) -> None:
+    data = await state.get_data()
+    result = kalkulyator.calculate(data.get("kind", ""), message.text or "", data.get("rate", "4"))
+    if result is None:
+        text = message.text or ""
+        if "?" in text or len(re.findall(r"[a-z]{2,}", normalize(text))) >= 2:  # son emas, savol — savolga o'tamiz
+            await state.clear()
+            await on_question(message, pool, settings, llm, state)
+            return
+        await message.answer("Sonni tushunmadim. " + kalkulyator.PROMPTS[data.get("kind", "qqs_qosh")],
+                             parse_mode=ParseMode.HTML)
+        return
+    await state.clear()
+    async with pool.acquire() as conn:
+        article = await get_article(conn, result.modda, kalkulyator.SK)
+    lines = [f"🧮 <b>{esc(result.title)}</b>", ""]
+    lines += [f"{esc(name)}: <b>{kalkulyator.fmt(value)}</b> so'm" for name, value in result.lines]
+    lines += ["", f"<i>Formula: {esc(result.formula)}</i>"]
+    if article is not None:
+        lines.append(f"Manba: Soliq kodeksi, {link(article.link, article.heading.text)}")
+    if result.note:
+        lines += ["", f"⚠️ {esc(result.note)}"]
+    markup = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🧮 Yana hisoblash", callback_data="h:menu"),
+        InlineKeyboardButton(text=f"📖 {result.modda}-modda", callback_data=f"v:m:{kalkulyator.SK}:{result.modda}"),
+    ]])
+    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW,
+                         reply_markup=markup)
+
+
 # --- /stat, /yangiliklar ----------------------------------------------------------------
 
 
@@ -481,10 +561,12 @@ def create_router() -> Router:
     router.message(Command("modda"))(cmd_modda)
     router.message(Command("stat"))(cmd_stat)
     router.message(Command("admin"))(cmd_admin)
+    router.message(Command("hisobla"))(cmd_hisobla)
     router.message(Command("yangiliklar"))(cmd_news)
     router.message(F.text.startswith("/"))(cmd_unknown)
     router.message(Waiting.modda, F.text)(on_modda_number)
     router.message(Waiting.profile_value, F.text)(on_profile_value)
+    router.message(Waiting.calc, F.text)(on_calc_value)
     router.message(F.text)(on_question)
     router.message(F.voice | F.audio | F.video_note)(on_voice)
     router.message(F.photo | F.document | F.sticker | F.video)(on_non_text)
@@ -494,5 +576,6 @@ def create_router() -> Router:
     router.callback_query(F.data.startswith("x:"))(on_xabar_decision)
     router.callback_query(F.data == CHECK_CALLBACK)(on_subscription_check)
     router.callback_query(F.data.startswith("a:"))(on_admin_button)
+    router.callback_query(F.data.startswith("h:"))(on_calc_button)
     router.errors()(on_error)
     return router
