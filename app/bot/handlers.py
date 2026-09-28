@@ -390,7 +390,7 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
             if llm is None:
                 fa = await answer_without_llm(conn, question, today, request_id=rid)
             else:
-                fa = await answer_question(conn, llm, question, today, request_id=rid)
+                fa = await answer_question(conn, llm, question, today, request_id=rid, profile=user.profile)
             await log_conversation(conn, tg_id, question, fa)
         await send_long(message, format_final_answer(fa), answer_keyboard(fa))
 

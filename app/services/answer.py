@@ -233,6 +233,7 @@ async def answer_question(
     *,
     use_rewrite: bool = True,
     request_id: str | None = None,
+    profile: dict | None = None,
 ) -> FinalAnswer:
     started = time.monotonic()
     rid = request_id or str(uuid.uuid4())
@@ -278,7 +279,8 @@ async def answer_question(
         removed: list[str] = []
         while True:
             # Sinxron SDK chaqiruvi alohida oqimda — bot boshqa foydalanuvchilarni kutdirmaydi.
-            output = await asyncio.to_thread(llm.answer, render_user_message(question, articles, today, note), usage)
+            message = render_user_message(question, articles, today, note, profile)
+            output = await asyncio.to_thread(llm.answer, message, usage)
             validated = validate_answer(output, articles)
             rejected += validated.rejected_source_ids
             removed += validated.removed_urls

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.client import ClaudeLLM, LLMError, LLMRefusal, Usage
-from app.ai.prompts import SYSTEM_PROMPT, render_user_message
+from app.ai.prompts import SYSTEM_PROMPT, render_profile, render_user_message
 from app.ai.schemas import AnswerOutput, Citation, QueryRewrite
 from app.ai.validation import strip_urls, validate_answer
 from app.collector.importer import import_document
@@ -411,3 +411,16 @@ def test_validate_answer_keeps_only_context_ids():
     assert [c.source.source_id for c in v.citations] == ["EL-1"]
     assert v.rejected_source_ids == ["EL-2"]
     assert v.citations[0].source.link == "https://lex.uz/docs/-5#-10"
+
+
+def test_profile_is_passed_to_claude_and_escaped(sk_db):
+    llm = FakeLLM(lambda msg, n: cite_first_text(msg))
+    fa = ask(sk_db, llm, "Soliq imtiyozidan foydalanish uchun qanday shartlar bor?", use_rewrite=False,
+             profile={"rejim": "Aylanma solig'i", "soha": "<Qurilish>"})
+    assert fa.status == "answered"
+    assert "<profil>Faoliyat sohasi: &lt;Qurilish&gt;; Soliq rejimi: Aylanma solig&#x27;i</profil>" in llm.answer_calls[0]
+
+
+def test_empty_profile_is_not_sent():
+    assert render_profile({}) is None and render_profile(None) is None
+    assert render_profile({"shakl": "MChJ"}) == "<profil>Tashkiliy shakl: MChJ</profil>"
