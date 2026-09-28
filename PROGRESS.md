@@ -456,3 +456,14 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
       litsenziyalash jamoatchilik nazorati, yer qa'ri, xorijda mehnat) — foydalanuvchi ruxsati bilan o'chirildi
       (7 hujjat, 693 element; `topilgan_hujjatlar.imported` belgisi qoldi — qayta import qilinmaydi). Lug'at
       yangilandi (22 057 so'z). Supabase: 67 hujjat, 30 485 element, 101 MB (bo'shagan joy jadvalda qayta ishlatiladi).
+
+### Yangilik xabarlari — foydalanuvchi talablari (2026-09-28)
+- [x] Birinchi 3 ta xabar (AI'siz) admin tomonidan bekor qilindi; format va tayyorlash usuli qayta ishlandi.
+- [x] Yangi format: turi va raqami, oddiy tildagi sarlavha + rasmiy nom, 💡 qisqacha, 📌 raqamlangan asosiy
+      o'zgarishlar (↗ manba havolasi), 👥 kimga tegishli, ✅ nima qilish kerak, 📅 sanalar, heshteglar.
+- [x] `NEWS_REQUIRE_AI=true` — xabarni faqat Claude tayyorlaydi; kredit yo'q bo'lsa kutiladi (har 15 daqiqada qayta).
+- [x] `NEWS_AUDIENCE=admins` — tasdiqlangan xabar hozircha faqat adminlarga.
+- [x] Kanal avtomatik emas: tasdiqlangan xabar ostida "📢 Kanalga joylash" (NEWS_CHANNEL berilganda).
+- [x] Bekor qilingan 3 ta xabar yozuvi o'chirildi (foydalanuvchi ruxsati bilan) — kredit qo'shilgach AI bilan
+      qayta tayyorlanadi (hozir 7 kunlik oraliqda 2 ta yangilik).
+- [ ] Anthropic krediti (console.anthropic.com → Billing) va yangi API kalit `.env` ga — foydalanuvchi.
