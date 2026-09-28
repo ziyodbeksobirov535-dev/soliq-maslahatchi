@@ -50,7 +50,7 @@ from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import is_followup, normalize
-from app.services import kalkulyator
+from app.services import kalendar, kalkulyator
 from app.services.answer import answer_question, answer_without_llm
 from app.services.xabarlar import decide, show_preview
 from app.services.users import (
@@ -95,6 +95,7 @@ START_TEXT = (
     "Buyruqlar:\n"
     "/modda 461 — Soliq kodeksi moddasi (boshqa hujjat: /modda 106 mehnat). Faqat raqam yozsangiz ham bo'ladi.\n"
     "/hisobla — soliq kalkulyatori (QQS, JSHDS, aylanma solig'i, penya)\n"
+    "/kalendar — hisobot va to'lov muddatlari, eslatmalar\n"
     "/profil — soha, soliq rejimi va tashkiliy shakl (tugmalar bilan)\n"
     "/yangiliklar — qonunchilikdagi yangiliklar\n\n"
     "Hozir bazada: Soliq, Mehnat, Fuqarolik, Bojxona kodekslari va Buxgalteriya hisobi to'g'risidagi qonun.\n"
@@ -404,6 +405,46 @@ async def on_calc_value(message: Message, pool: asyncpg.Pool, settings: Settings
                          reply_markup=markup)
 
 
+# --- /kalendar --------------------------------------------------------------------------
+
+
+async def _calendar_text(conn: asyncpg.Connection, user, settings: Settings) -> tuple[str, InlineKeyboardMarkup]:
+    today = datetime.now(settings.tz).date()
+    rejim = user.profile.get("rejim")
+    links = await kalendar.article_links(conn)
+    on = await conn.fetchval("SELECT eslatma FROM foydalanuvchilar WHERE telegram_id = $1", user.telegram_id)
+    lines = ["📅 <b>Soliq kalendari</b> — yaqin muddatlar", ""]
+    if not rejim:
+        lines += ["<i>Profilda soliq rejimini tanlasangiz (/profil), faqat sizga tegishlilari ko'rinadi.</i>", ""]
+    for d, due in kalendar.upcoming(today, rejim):
+        left = (due - today).days
+        when = "bugun" if left == 0 else f"{left} kun qoldi"
+        ref = link(links[d.modda], f"{d.modda}-modda") if d.modda in links else f"{d.modda}-modda"
+        lines.append(f"• <b>{kalendar.fmt_date(due)}</b> ({when}) — {esc(d.nomi)} · {ref}")
+    lines += ["", "🔔 Eslatmalar: " + ("yoqilgan — muddatdan 3 kun oldin va muddat kuni." if on else "o'chiq.")]
+    button = InlineKeyboardButton(text="🔕 Eslatmalarni o'chirish" if on else "🔔 Eslatmalarni yoqish",
+                                  callback_data="k:off" if on else "k:on")
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=[[button]])
+
+
+async def cmd_kalendar(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    async with pool.acquire() as conn:
+        user = await ensure_user(conn, message.from_user.id)
+        text, markup = await _calendar_text(conn, user, settings)
+    await message.answer(text, parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW, reply_markup=markup)
+
+
+async def on_calendar_toggle(query: CallbackQuery, pool: asyncpg.Pool, settings: Settings) -> None:
+    on = query.data == "k:on"
+    async with pool.acquire() as conn:
+        user = await ensure_user(conn, query.from_user.id)
+        await kalendar.set_reminders(conn, user.telegram_id, on)
+        text, markup = await _calendar_text(conn, user, settings)
+    await query.answer("Eslatmalar yoqildi" if on else "Eslatmalar o'chirildi")
+    await query.message.edit_text(text, parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW,
+                                  reply_markup=markup)
+
+
 # --- /stat, /yangiliklar ----------------------------------------------------------------
 
 
@@ -562,6 +603,7 @@ def create_router() -> Router:
     router.message(Command("stat"))(cmd_stat)
     router.message(Command("admin"))(cmd_admin)
     router.message(Command("hisobla"))(cmd_hisobla)
+    router.message(Command("kalendar"))(cmd_kalendar)
     router.message(Command("yangiliklar"))(cmd_news)
     router.message(F.text.startswith("/"))(cmd_unknown)
     router.message(Waiting.modda, F.text)(on_modda_number)
@@ -577,5 +619,6 @@ def create_router() -> Router:
     router.callback_query(F.data == CHECK_CALLBACK)(on_subscription_check)
     router.callback_query(F.data.startswith("a:"))(on_admin_button)
     router.callback_query(F.data.startswith("h:"))(on_calc_button)
+    router.callback_query(F.data.in_({"k:on", "k:off"}))(on_calendar_toggle)
     router.errors()(on_error)
     return router

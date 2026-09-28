@@ -499,3 +499,15 @@ def test_calculator_turnover_rate_choice_and_bad_input(bot_db):
 def test_calculator_question_instead_of_number_goes_to_question(bot_db):
     s = feed(bot_db, [callback(6600, "h:jshds"), "Soliq imtiyozlari shartlari qanday?"], user_id=6600, llm=None)
     assert s.sent[1].text.startswith("Hozir to'liq javob tayyorlay olmadim")
+
+
+def test_calendar_command_and_toggle(bot_db):
+    s = feed(bot_db, ["/profil rejim Aylanma solig'i", "/kalendar", callback(6700, "k:on")], user_id=6700)
+    text = s.sent[1].text
+    assert "📅 <b>Soliq kalendari</b>" in text and "Aylanma solig'i — hisobot va to'lov" in text
+    assert "QQS" not in text  # aylanma soliq to'lovchiga QQS muddati ko'rsatilmaydi
+    assert '<a href="https://lex.uz/docs/-4674902#' in text and "Eslatmalar: o'chiq" in text
+    assert s.sent[1].reply_markup.inline_keyboard[0][0].callback_data == "k:on"
+    edit = [r for r in s.requests if type(r).__name__ == "EditMessageText"][0]
+    assert "Eslatmalar: yoqilgan" in edit.text
+    assert query(bot_db, "SELECT eslatma FROM foydalanuvchilar WHERE telegram_id = 6700")[0][0] is True

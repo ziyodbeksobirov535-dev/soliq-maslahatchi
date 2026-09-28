@@ -21,6 +21,7 @@ COMMANDS = [
     BotCommand(command="start", description="Yordam va misollar"),
     BotCommand(command="modda", description="Modda matni: /modda 461"),
     BotCommand(command="hisobla", description="Soliq kalkulyatori: QQS, JSHDS, aylanma, penya"),
+    BotCommand(command="kalendar", description="Soliq kalendari va eslatmalar"),
     BotCommand(command="profil", description="Profil va kunlik limit"),
     BotCommand(command="yangiliklar", description="Qonunchilik yangiliklari"),
 ]
