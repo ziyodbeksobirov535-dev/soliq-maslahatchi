@@ -130,6 +130,23 @@ async def log_simple(conn: asyncpg.Connection, request_id: str, telegram_id: int
     )
 
 
+FOLLOWUP_MINUTES = 15
+
+
+async def last_question(conn: asyncpg.Connection, telegram_id: int, now: datetime,
+                        minutes: int = FOLLOWUP_MINUTES) -> str | None:
+    """Oxirgi javob berilgan savol (davomiy savol konteksti uchun), `minutes` ichida bo'lsa."""
+    return await conn.fetchval(
+        """
+        SELECT question FROM suhbatlar
+        WHERE telegram_id = $1 AND created_at >= $2
+          AND status IN ('answered', 'sources_only', 'insufficient')
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        telegram_id, now - timedelta(minutes=minutes),
+    )
+
+
 async def set_rating(conn: asyncpg.Connection, request_id: str, telegram_id: int, value: int) -> bool:
     """Javobga baho (1 / -1). Faqat o'z savoliga; topilmasa False."""
     if value not in (1, -1):

@@ -41,7 +41,7 @@ from app.bot.subscription import CHECK_CALLBACK, GATE_TEXT, MembershipChecker, g
 from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
-from app.retrieval.query import normalize
+from app.retrieval.query import is_followup, normalize
 from app.services.answer import answer_question, answer_without_llm
 from app.services.xabarlar import decide
 from app.services.users import (
@@ -49,6 +49,7 @@ from app.services.users import (
     collect_stats,
     effective_limit,
     ensure_user,
+    last_question,
     log_conversation,
     log_simple,
     questions_today,
@@ -387,10 +388,15 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
 
             await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
             today = datetime.now(settings.tz).date()
+            previous = None
+            if is_followup(question, today):
+                previous = await last_question(conn, tg_id, datetime.now(timezone.utc))
+            asked = f"{previous} — {question}" if previous else question
             if llm is None:
-                fa = await answer_without_llm(conn, question, today, request_id=rid)
+                fa = await answer_without_llm(conn, asked, today, request_id=rid)
             else:
-                fa = await answer_question(conn, llm, question, today, request_id=rid, profile=user.profile)
+                fa = await answer_question(conn, llm, asked, today, request_id=rid, profile=user.profile)
+            fa.followup_of = previous
             await log_conversation(conn, tg_id, question, fa)
         await send_long(message, format_final_answer(fa), answer_keyboard(fa))
 

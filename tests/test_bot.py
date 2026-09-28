@@ -417,3 +417,16 @@ def test_gate_disabled_without_channel(bot_db):
     s = feed(bot_db, ["/modda 461"], user_id=5600)
     assert "461-modda" in s.sent[0].text
     assert not [r for r in s.requests if isinstance(r, GetChatMember)]
+
+
+def test_followup_question_uses_previous_question(bot_db):
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Bu qachon beriladi?"], user_id=6050, llm=None)
+    assert "🔗 Oldingi savolingiz bilan bog'lab qidirdim: «Soliq imtiyozlari shartlari qanday?»" in s.sent[1].text
+    assert s.sent[1].text.count("📌") >= 1
+    rows = query(bot_db, "SELECT question, status FROM suhbatlar WHERE telegram_id = 6050 ORDER BY id")
+    assert [r["question"] for r in rows] == ["Soliq imtiyozlari shartlari qanday?", "Bu qachon beriladi?"]
+
+
+def test_standalone_question_is_not_linked(bot_db):
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Jarima qanday hisoblanadi?"], user_id=6150, llm=None)
+    assert "Oldingi savolingiz" not in s.sent[1].text

@@ -309,6 +309,24 @@ def _historical(norm: str, today: date) -> tuple[date | None, str | None]:
     return None, None
 
 
+# Davomiy savol belgilari: oldingi savolga ishora ("u qachon to'lanadi?", "unda jarima qancha?").
+FOLLOWUP_PRONOUNS = frozenset({"u", "bu", "shu", "osha", "uning", "unga", "uni", "undan", "bunda", "shunda",
+                               "buning", "shuning", "ular", "ularning"})
+FOLLOWUP_STARTS = frozenset({"va", "yana", "unda", "shunda", "keyin", "agar", "bunda"})
+FOLLOWUP_MAX_TERMS = 3
+
+
+def is_followup(question: str, today: date) -> bool:
+    """Qisqa savol oldingi savolga ishora qiladimi (olmosh yoki "va/yana/unda" bilan boshlanadi)."""
+    words = [w for w in _WORD_RE.findall(normalize(question)) if not w.isdigit()]
+    if not words:
+        return False
+    plan = analyze(question, today)
+    if plan.article_number is not None or len(plan.terms) > FOLLOWUP_MAX_TERMS:
+        return False
+    return words[0] in FOLLOWUP_STARTS or any(w in FOLLOWUP_PRONOUNS for w in words)
+
+
 def analyze(question: str, today: date) -> QueryPlan:
     russian = is_russian(question)
     norm = normalize(russian_to_uzbek(question) if russian else question)

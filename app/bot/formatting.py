@@ -69,6 +69,9 @@ def link(url: str, title: str) -> str:
 def format_notes(fa: FinalAnswer) -> list[str]:
     """Javob boshidagi izohlar: imlo tuzatishlari va ruscha savol."""
     notes = []
+    if fa.followup_of:
+        prev = fa.followup_of if len(fa.followup_of) <= 80 else fa.followup_of[:79] + "…"
+        notes.append(f"🔗 Oldingi savolingiz bilan bog'lab qidirdim: «{esc(prev)}»")
     if fa.corrections:
         fixes = ", ".join(f"«{esc(a)}» → «{esc(b)}»" for a, b in fa.corrections.items())
         notes.append(f"✏️ Imlo tuzatildi: {fixes}")

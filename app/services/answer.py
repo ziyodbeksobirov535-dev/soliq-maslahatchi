@@ -76,6 +76,7 @@ class FinalAnswer:
     hints: list[SourceHint] = field(default_factory=list)  # sources_only: ko'rsatiladigan manbalar
     corrections: dict[str, str] = field(default_factory=dict)  # imlo tuzatishlari
     language: str = "uz"
+    followup_of: str | None = None  # davomiy savol — oldingi savol matni
     needs_more: list[str] = field(default_factory=list)
     search_queries: list[str] = field(default_factory=list)
     confidence: str | None = None
