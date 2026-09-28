@@ -437,7 +437,12 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - [x] 7. Davomiy savol: "u/bu/shu/unda..." + ≤3 so'z → oxirgi 15 daqiqadagi savol bilan birga qidiriladi (izoh 🔗).
 - [x] 8. `/admin`: salbiy baholar, javobsiz savollar, xabarlar holati (kutayotganini qayta ko'rish).
 - [x] 9. Ovozli xabar: STT xizmati yo'q — "matn bilan yozing" javobi; rasm/hujjat — "faqat matn".
-- [ ] 10. Baza kengayishi: Supabase'da `jobs discover` (~90 Lex.uz so'rovi) + `DISCOVERY_DAILY_LIMIT=50` — ruxsat kutilmoqda.
+- [x] 10. Baza kengayishi (ruxsat bilan): `jobs discover` — 16 qidiruv, 1 059 noyob, 986 relevant, xato 0;
+      `.env` `DISCOVERY_DAILY_LIMIT=50`; birinchi partiya qo'lda: 48 import + 2 bor edi, xato 0. Navbatda 936.
+      Supabase: 74 hujjat, 31 178 element, **102 MB**. Hujjat o'rtacha 111 element ≈ 280 KB → 936 ta ≈ +262 MB,
+      jami ≈ 365–380 MB (Free 500 MB ning ~75%) — keyin Supabase Pro yoki indeks/hajm optimizatsiyasi kerak bo'lishi mumkin.
 - Testlar: 412 passed (lokal PostgreSQL), bazasiz 250 passed.
-- [ ] Supabase'ga **012** (ruxsat bilan), noto'g'ri relevant 44 yangilikni tuzatish (ruxsat bilan), botni oddiy
-      rejimda qayta ishga tushirish.
+- [x] Ruxsat bilan: 44 yangilik `relevant = false` (tekshiruv: aynan 44; qoldi 23); **012** qo'llandi (checksum
+      `b5f04b94…`, RLS yoqilgan); bot oddiy rejimda qayta ishga tushirildi (8 job, reminders ham).
+- Birinchi `publish` (10:25): xabar yaratilmadi — RSS'dagi eng yangi relevant hujjat 22.09 (6 kun oldin),
+  `NEWS_MAX_AGE_DAYS=3`. 7 kunlikda 3 ta, 14 kunlikda 10 ta. Oraliqni foydalanuvchi hal qiladi.
