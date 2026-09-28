@@ -399,6 +399,21 @@ async def cmd_unknown(message: Message) -> None:
     await message.answer("Noma'lum buyruq. /start — yordam.")
 
 
+VOICE_TEXT = ("🎙 Ovozli xabarlarni hozircha tushunmayman — savolingizni matn bilan yozing "
+              "(lotin yoki kirill yozuvida). Masalan: <i>QQS stavkasi qancha?</i>")
+NON_TEXT_TEXT = ("Hozircha faqat matnli savollarni tushunaman. Savolingizni yozing yoki modda raqamini yuboring "
+                 "(masalan: <b>461</b>).")
+
+
+async def on_voice(message: Message) -> None:
+    """Ovozli savol: nutqni matnga aylantirish xizmati (STT) ulanmaguncha — matn bilan yozishni so'raymiz."""
+    await message.answer(VOICE_TEXT, parse_mode=ParseMode.HTML)
+
+
+async def on_non_text(message: Message) -> None:
+    await message.answer(NON_TEXT_TEXT, parse_mode=ParseMode.HTML)
+
+
 # --- oddiy savol -------------------------------------------------------------------------
 
 
@@ -471,6 +486,8 @@ def create_router() -> Router:
     router.message(Waiting.modda, F.text)(on_modda_number)
     router.message(Waiting.profile_value, F.text)(on_profile_value)
     router.message(F.text)(on_question)
+    router.message(F.voice | F.audio | F.video_note)(on_voice)
+    router.message(F.photo | F.document | F.sticker | F.video)(on_non_text)
     router.callback_query(F.data.startswith("v:"))(on_view_source)
     router.callback_query(F.data.startswith("r:"))(on_rate)
     router.callback_query(F.data.startswith("p:"))(on_profile_button)

@@ -456,3 +456,18 @@ def test_admin_negative_and_unanswered_lists(bot_db):
     assert "tasdiq kutmoqda: 0" in news
     stat = feed(bot_db, [callback(ADMIN, "a:stat")], user_id=ADMIN).sent[0].text
     assert "<b>Statistika</b>" in stat
+
+
+def test_voice_and_non_text_messages_get_friendly_reply(bot_db):
+    from aiogram.types import PhotoSize, Voice
+
+    def msg_update(n, **kw):
+        return Update(update_id=n, message=Message(
+            message_id=n, date=datetime.now(timezone.utc), chat=Chat(id=6300, type="private"),
+            from_user=User(id=6300, is_bot=False, first_name="Test"), **kw))
+
+    voice = msg_update(1, voice=Voice(file_id="v", file_unique_id="v", duration=3))
+    photo = msg_update(2, photo=[PhotoSize(file_id="p", file_unique_id="p", width=1, height=1)])
+    s = feed(bot_db, [voice, photo], user_id=6300)
+    assert "Ovozli xabarlarni hozircha tushunmayman" in s.sent[0].text
+    assert "faqat matnli savollarni" in s.sent[1].text
