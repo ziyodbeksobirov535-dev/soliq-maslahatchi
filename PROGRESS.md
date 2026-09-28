@@ -452,5 +452,7 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
       qarori, nomida soliq/buxgalteriya/tadbirkorlik so'zi (`discovery.DOC_TYPES`, `MAVZU_SOZLARI`). Idoraviy,
       qo'shma, farmoyish va boshqa mavzular yuklanmaydi. `jobs reclassify` — navbat qayta baholandi: relevant
       986 → **414** (572 o'zgardi), navbatda 371. Kutilgan jami hajm ≈ 210–220 MB (Free 500 MB ning ~45%).
-- [ ] Ilgari import qilingan 50 tadan 7 tasi yangi filtrga mos emas (ruxsatnoma, xalqaro yuk tashish, o'rmon,
-      litsenziyalash jamoatchilik nazorati, yer qa'ri, xorijda mehnat) — o'chirish foydalanuvchi qaroriga.
+- [x] Ilgari import qilingan 50 tadan 7 tasi yangi filtrga mos emas edi (ruxsatnoma, xalqaro yuk tashish, o'rmon,
+      litsenziyalash jamoatchilik nazorati, yer qa'ri, xorijda mehnat) — foydalanuvchi ruxsati bilan o'chirildi
+      (7 hujjat, 693 element; `topilgan_hujjatlar.imported` belgisi qoldi — qayta import qilinmaydi). Lug'at
+      yangilandi (22 057 so'z). Supabase: 67 hujjat, 30 485 element, 101 MB (bo'shagan joy jadvalda qayta ishlatiladi).
