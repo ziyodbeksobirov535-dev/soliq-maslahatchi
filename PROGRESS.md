@@ -446,3 +446,11 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
       `b5f04b94…`, RLS yoqilgan); bot oddiy rejimda qayta ishga tushirildi (8 job, reminders ham).
 - Birinchi `publish` (10:25): xabar yaratilmadi — RSS'dagi eng yangi relevant hujjat 22.09 (6 kun oldin),
   `NEWS_MAX_AGE_DAYS=3`. 7 kunlikda 3 ta, 14 kunlikda 10 ta. Oraliqni foydalanuvchi hal qiladi.
+- [x] Foydalanuvchi qarori: yangiliklar oralig'i **7 kun** (`.env` `NEWS_MAX_AGE_DAYS=7`; bot doimiy ishlaganda
+      yangiliklar har kuni o'zi keladi). Bot 11:35 da qayta ishga tushirildi.
+- [x] **Baza filtri** (foydalanuvchi qarori, hajm): discovery faqat Prezident farmoni/qarori va Vazirlar Mahkamasi
+      qarori, nomida soliq/buxgalteriya/tadbirkorlik so'zi (`discovery.DOC_TYPES`, `MAVZU_SOZLARI`). Idoraviy,
+      qo'shma, farmoyish va boshqa mavzular yuklanmaydi. `jobs reclassify` — navbat qayta baholandi: relevant
+      986 → **414** (572 o'zgardi), navbatda 371. Kutilgan jami hajm ≈ 210–220 MB (Free 500 MB ning ~45%).
+- [ ] Ilgari import qilingan 50 tadan 7 tasi yangi filtrga mos emas (ruxsatnoma, xalqaro yuk tashish, o'rmon,
+      litsenziyalash jamoatchilik nazorati, yer qa'ri, xorijda mehnat) — o'chirish foydalanuvchi qaroriga.
