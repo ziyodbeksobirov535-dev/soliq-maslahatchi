@@ -39,6 +39,7 @@ def settings(*, day: bool = True, **kw) -> Settings:
         h = datetime.now(ZoneInfo("Asia/Tashkent")).hour
         hours = dict(news_send_start_hour=h + 1, news_send_end_hour=h + 2) if h < 22 else \
             dict(news_send_start_hour=0, news_send_end_hour=1)
+    kw.setdefault("news_require_ai", False)  # testlarda AI'siz ham xabar tayyorlansin (alohida test bor)
     return Settings(_env_file=None, admin_telegram_ids=frozenset({ADMIN}), **hours, **kw)
 
 
@@ -153,11 +154,13 @@ def test_news_draft_without_llm_uses_document_bands(xdb):
 
     d = run(with_conn(xdb, go))
     assert d.usul == "matndan" and d.kalit == f"yangilik:{DOC_ID}" and d.havola == NEWS["url"]
-    assert d.matn.startswith("📰 <b>Soliq hisobotini soddalashtirish")
-    assert "Prezident farmoni · №PF-1 · qabul qilingan 25.09.2026 · kuchga kirish 01.10.2026" in d.matn
-    assert "• 1. Hisobot shakllari qisqartirilsin." in d.matn
-    assert "• 2. Aksiz to'lovchilar hisobotni har oy topshiradi." in d.matn
-    assert "🎯 Kimga tegishli: soliq, qurilish" in d.matn and "📅 Kuchga kirish: 01.10.2026" in d.matn
+    assert d.matn.startswith("📰 <b>Prezident farmoni</b> · №PF-1\n\n<b>Soliq hisobotini soddalashtirish to'g'risida</b>")
+    assert "📌 <b>Asosiy o'zgarishlar:</b>" in d.matn
+    assert "1️⃣ Hisobot shakllari qisqartirilsin." in d.matn  # band raqami takrorlanmaydi
+    assert "2️⃣ Aksiz to'lovchilar hisobotni har oy topshiradi." in d.matn
+    assert "👥 <b>Kimga tegishli:</b> soliq, qurilish" in d.matn
+    assert "📅 qabul qilingan 25.09.2026 · kuchga kiradi 01.10.2026" in d.matn
+    assert d.matn.endswith("#soliq #qurilish")
 
 
 class DigestLLM:
@@ -174,7 +177,7 @@ def test_news_draft_with_llm_keeps_only_verified_points(xdb):
         return NewsDigest(sarlavha="Aksiz hisobotlari har oy", mohiyat="Farmon hisobotni soddalashtiradi.",
                           bandlar=[DigestPoint(matn="Aksiz hisoboti har oy", source_id=real),
                                    DigestPoint(matn="Uydirma band", source_id="EL-999999")],
-                          kimga=["aksiz to'lovchilar"])
+                          kimga=["aksiz to'lovchilar"], amaliy="Hisobotni har oy topshiring.")
 
     async def go(conn):
         await add_news(conn)
@@ -183,15 +186,18 @@ def test_news_draft_with_llm_keeps_only_verified_points(xdb):
 
     d = run(with_conn(xdb, go))
     assert d.usul == "llm"
-    assert d.matn.startswith("📰 <b>Aksiz hisobotlari har oy</b>\nSoliq hisobotini soddalashtirish")
-    assert "Aksiz hisoboti har oy" in d.matn and "Uydirma" not in d.matn
-    assert f'<a href="https://lex.uz/docs/{DOC_ID}#' in d.matn  # band manbasi — bazadagi havola
-    assert "🎯 Kimga tegishli: aksiz to'lovchilar" in d.matn
+    assert d.matn.startswith("📰 <b>Prezident farmoni</b> · №PF-1\n\n<b>Aksiz hisobotlari har oy</b>\n"
+                             "<i>Soliq hisobotini soddalashtirish to'g'risida</i>\n\n💡 Farmon hisobotni soddalashtiradi.")
+    assert "1️⃣ Aksiz hisoboti har oy" in d.matn and "Uydirma" not in d.matn
+    assert f'<a href="https://lex.uz/docs/{DOC_ID}#' in d.matn and "↗</a>" in d.matn  # manba — bazadagi havola
+    assert "👥 <b>Kimga tegishli:</b> aksiz to'lovchilar" in d.matn
+    assert "✅ <b>Nima qilish kerak:</b> Hisobotni har oy topshiring." in d.matn
 
 
 def test_news_draft_llm_failure_or_no_valid_points_falls_back(xdb):
     def bad(elements):
-        return NewsDigest(sarlavha="x", mohiyat="y", bandlar=[DigestPoint(matn="z", source_id="EL-1")], kimga=[])
+        return NewsDigest(sarlavha="x", mohiyat="y", bandlar=[DigestPoint(matn="z", source_id="EL-1")], kimga=[],
+                          amaliy="")
 
     def fail(elements):
         raise LLMError("kredit yo'q")
@@ -202,6 +208,24 @@ def test_news_draft_llm_failure_or_no_valid_points_falls_back(xdb):
         return [await xabarlar.build_news_draft(conn, y, DigestLLM(f)) for f in (bad, fail)]
 
     assert [d.usul for d in run(with_conn(xdb, go))] == ["matndan", "matndan"]
+
+
+def test_require_ai_waits_instead_of_plain_text(xdb):
+    def fail(elements):
+        raise LLMError("kredit yo'q")
+
+    async def go(pool):
+        async with pool.acquire() as conn:
+            await add_news(conn)
+        waiting = await xabarlar.prepare_news(pool, DigestLLM(fail), settings(news_require_ai=True))
+        no_llm = await xabarlar.prepare_news(pool, None, settings(news_require_ai=True))
+        async with pool.acquire() as conn:
+            n = await conn.fetchval("SELECT count(*) FROM xabarlar")
+        later = await xabarlar.prepare_news(pool, None, settings(news_require_ai=False))  # keyinroq — qayta urinadi
+        return waiting, no_llm, n, later
+
+    waiting, no_llm, n, later = with_pool(xdb, go)
+    assert (waiting, no_llm, n) == ([], [], 0) and len(later) == 1
 
 
 def test_prepare_news_is_idempotent_and_skips_old_and_irrelevant(xdb):
@@ -275,21 +299,21 @@ def test_admin_gets_preview_with_decision_buttons(xdb):
     shown, again, previews = with_pool(xdb, go)
     assert (shown, again) == (1, 0)  # bir marta ko'rsatiladi
     chat_id, text, markup = bot.sent[0]
-    assert chat_id == ADMIN and text.startswith("🆕 <b>Tasdiq kutilmoqda</b> · yangilik · 4 ta foydalanuvchiga")
+    assert chat_id == ADMIN and text.startswith("🆕 <b>Tasdiq kutilmoqda</b> · yangilik · AI'siz · 1 ta adminga")
     assert buttons(markup) == ["📄 Lex.uz'da ochish", "✅ Yuborish", "❌ Bekor qilish"]
     assert json.loads(previews) == [[ADMIN, 1]]
     assert not [s for s in bot.sent if s[0] != ADMIN]  # tasdiqsiz hech kimga ketmadi
 
 
-def test_approve_in_daytime_sends_to_everyone_once(xdb):
+def approve_and_send(xdb, cfg):
     xid = prepared(xdb)
     bot = FakeBot()
 
     async def go(pool):
-        await xabarlar.notify_admins(bot, pool, settings())
-        result = await xabarlar.decide(bot, pool, settings(), xid, ADMIN, approve=True)
+        await xabarlar.notify_admins(bot, pool, cfg)
+        result = await xabarlar.decide(bot, pool, cfg, xid, ADMIN, approve=True)
         await asyncio.gather(*xabarlar._background)
-        again = await xabarlar.send_approved(bot, pool, settings())
+        again = await xabarlar.send_approved(bot, pool, cfg)
         async with pool.acquire() as conn:
             x = await conn.fetchrow("SELECT holat, hal_qilgan FROM xabarlar WHERE id = $1", xid)
             log = {r["telegram_id"]: r["natija"] for r in await conn.fetch(
@@ -297,16 +321,25 @@ def test_approve_in_daytime_sends_to_everyone_once(xdb):
             blocked = await conn.fetchval("SELECT bloklagan FROM foydalanuvchilar WHERE telegram_id = $1", BLOCKED)
         return result, again, x, log, blocked
 
-    result, again, x, log, blocked = with_pool(xdb, go)
+    return bot, *with_pool(xdb, go)
+
+
+def test_approve_sends_only_to_admins_by_default(xdb):
+    bot, result, again, x, log, blocked = approve_and_send(xdb, settings())
     assert result == "Tasdiqlandi, yuborilmoqda" and again == 0
     assert (x["holat"], x["hal_qilgan"]) == ("yuborildi", ADMIN)
+    assert log == {ADMIN: "ok"}  # obunachilarga emas (NEWS_AUDIENCE=admins)
+    assert [s[0] for s in bot.sent] == [ADMIN, ADMIN]  # ko'rinish + tasdiqlangan xabar
+    assert buttons(bot.sent[1][2]) == ["📄 Lex.uz'da ochish"]
+    assert buttons(bot.edits[-1][2])[-1] == "✅ Yuborildi: 1 ta adminga"
+
+
+def test_approve_with_audience_all_sends_to_everyone_once(xdb):
+    bot, result, again, x, log, blocked = approve_and_send(xdb, settings(news_audience="all"))
     assert log == {ADMIN: "ok", 2001: "ok", 2002: "ok", BLOCKED: "bloklangan"}
-    users = [s for s in bot.sent[1:]]
-    assert sorted(s[0] for s in users) == [ADMIN, 2001, 2002]
-    assert buttons(users[0][2]) == ["📄 Lex.uz'da ochish"]  # foydalanuvchida tasdiq tugmalari yo'q
+    assert sorted(s[0] for s in bot.sent[1:]) == [ADMIN, 2001, 2002]
     assert blocked is True
-    final = bot.edits[-1][2]
-    assert buttons(final)[-1] == "✅ Yuborildi: 3 ta foydalanuvchiga"
+    assert buttons(bot.edits[-1][2])[-1] == "✅ Yuborildi: 3 ta foydalanuvchiga"
 
 
 def test_approve_at_night_waits_for_daytime(xdb):
@@ -352,29 +385,43 @@ def test_blocked_user_is_unblocked_when_writing_again(xdb):
     assert run(with_conn(xdb, go)) is False
 
 
-def test_approved_message_is_posted_to_channel_once(xdb):
+def test_channel_post_only_by_admin_button_after_approval(xdb):
     xid = prepared(xdb)
     bot = FakeBot()
     cfg = settings(news_channel="@soliq_kanal")
 
     async def go(pool):
         await xabarlar.notify_admins(bot, pool, cfg)
+        early = await xabarlar.post_to_channel(bot, pool, cfg, xid)  # tasdiqsiz — yo'q
         await xabarlar.decide(bot, pool, cfg, xid, ADMIN, approve=True)
         await asyncio.gather(*xabarlar._background)
+        auto = [s for s in bot.sent if s[0] == "@soliq_kanal"]  # tasdiqlash kanalga avtomatik joylamaydi
+        first = await xabarlar.post_to_channel(bot, pool, cfg, xid)
+        second = await xabarlar.post_to_channel(bot, pool, cfg, xid)
         async with pool.acquire() as conn:
-            await conn.execute("UPDATE xabarlar SET holat = 'tasdiqlandi', yuborish_boshlangan = NULL WHERE id = $1",
-                               xid)  # qayta yuborish holati: kanalga ikkinchi marta joylanmasin
-        await xabarlar.send_approved(bot, pool, cfg)
-        async with pool.acquire() as conn:
-            return await conn.fetchval("SELECT kanal_xabar_id FROM xabarlar WHERE id = $1", xid)
+            kanal_id = await conn.fetchval("SELECT kanal_xabar_id FROM xabarlar WHERE id = $1", xid)
+        return early, auto, first, second, kanal_id
 
-    kanal_id = with_pool(xdb, go)
-    preview = bot.sent[0][1]
-    assert "+ @soliq_kanal kanali" in preview
+    early, auto, first, second, kanal_id = with_pool(xdb, go)
+    assert early == "Avval xabarni tasdiqlang" and auto == []
+    assert (first, second) == ("Kanalga joylandi", "Allaqachon kanalga joylangan") and kanal_id is not None
+    status = buttons(bot.edits[0][2])
+    assert "📢 Kanalga joylash" in status  # tasdiqlangan ko'rinishda kanal tugmasi bor
     posts = [s for s in bot.sent if s[0] == "@soliq_kanal"]
-    assert len(posts) == 1 and kanal_id is not None
-    urls = [b.url for row in posts[0][2].inline_keyboard for b in row]
-    assert urls == [NEWS["url"], "https://t.me/soliqexpertibot"]
+    assert len(posts) == 1
+    assert [b.url for row in posts[0][2].inline_keyboard for b in row] == [NEWS["url"], "https://t.me/soliqexpertibot"]
+
+
+def test_channel_button_hidden_without_channel(xdb):
+    xid = prepared(xdb)
+    bot = FakeBot()
+
+    async def go(pool):
+        await xabarlar.notify_admins(bot, pool, settings())
+        await xabarlar.decide(bot, pool, settings(day=False), xid, ADMIN, approve=True)
+
+    with_pool(xdb, go)
+    assert "📢 Kanalga joylash" not in buttons(bot.edits[-1][2])
 
 
 def test_admin_can_reshow_pending_preview(xdb):

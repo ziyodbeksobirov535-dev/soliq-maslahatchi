@@ -12,9 +12,10 @@
 - Tasdiqsiz hech kimga yuborilmaydi. Kechasi tasdiqlangani ertalab yuboriladi.
 - Qayta ishga tushish xavfsiz: `xabarlar.kalit` UNIQUE, `xabar_yuborishlar` PK — hech kimga ikki marta ketmaydi.
 - Botni bloklagan foydalanuvchi belgilanadi (`foydalanuvchilar.bloklagan`) va keyingi xabarlar unga ketmaydi.
-- NEWS_CHANNEL berilgan bo'lsa, tasdiqlangan xabar kanalga ham bir marta joylanadi (`xabarlar.kanal_xabar_id`).
-  Kanal postida faqat havola tugmalari: "Lex.uz'da ochish" va "Botda savol berish" (callback tugmalari kanalda
-  bosilsa javob kanalga ketib qolardi).
+- Qabul qiluvchilar: NEWS_AUDIENCE — "admins" (hozircha, foydalanuvchi qarori) yoki "all" (/start bosgan hamma).
+- Kanal: avtomatik emas — admin tasdiqlangan xabar ostidagi "📢 Kanalga joylash" tugmasini bosadi (NEWS_CHANNEL
+  berilgan bo'lsa); bir marta (`xabarlar.kanal_xabar_id`). Kanal postida faqat havola tugmalari.
+- NEWS_REQUIRE_AI: xabar faqat Claude bilan tayyorlanadi; AI ishlamasa keyingi urinishda qayta.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPrevie
 from app.ai.client import LLMError, Usage
 from app.bot.formatting import esc, link
 from app.config import Settings
+from app.retrieval.query import normalize
 
 log = logging.getLogger(__name__)
 
@@ -105,28 +107,60 @@ def extract_points(texts: list[str]) -> list[str]:
     return [_trim(t, POINT_CHARS) for t in points]
 
 
+NUMBERS = ("1️⃣", "2️⃣", "3️⃣", "4️⃣")
+SHORT_TYPES = (
+    ("prezidentining farmoni", "Prezident farmoni"),
+    ("prezidentining qarori", "Prezident qarori"),
+    ("vazirlar mahkamasining qarori", "Vazirlar Mahkamasi qarori"),
+    ("qonuni", "Qonun"),
+)
+
+
+def short_type(doc_type: str | None) -> str:
+    norm = normalize(doc_type or "")
+    return next((label for key, label in SHORT_TYPES if key in norm), doc_type or "Hujjat")
+
+
+def hashtags(labels: list[str]) -> str:
+    tags = ["#" + re.sub(r"[^\w]", "", label.replace(" ", "_").replace("'", "")) for label in labels]
+    return " ".join(dict.fromkeys(t for t in tags if len(t) > 1))
+
+
+def _strip_band_number(text: str) -> str:
+    return _BAND_RE.sub("", text, count=1).strip()
+
+
 def render_news(y, points: list[str], *, sarlavha: str | None = None, mohiyat: str | None = None,
-                kimga: list[str] | None = None, point_links: list[str] | None = None) -> str:
-    lines = [f"📰 <b>{esc(sarlavha or y['title'])}</b>"]
+                kimga: list[str] | None = None, amaliy: str | None = None,
+                point_links: list[str] | None = None) -> str:
+    """Telegram xabari: turi va raqami, sarlavha, qisqacha, raqamlangan asosiy o'zgarishlar, kimga tegishli,
+    nima qilish kerak, sanalar, heshteglar. Sana va raqam — faqat metadata'dan."""
+    head = f"📰 <b>{esc(short_type(y['doc_type']))}</b>"
+    if y["number"]:
+        head += f" · №{esc(y['number'])}"
+    lines = [head, "", f"<b>{esc(sarlavha or y['title'])}</b>"]
     if sarlavha:  # oddiy tildagi sarlavha — rasmiy nom ham ko'rinsin
-        lines.append(esc(y["title"]))
-    meta = meta_line(y["doc_type"], y["number"], y["adoption_date"], y["effective_date"])
-    if meta:
-        lines.append(f"<i>{esc(meta)}</i>")
-    lines.append("")
+        lines.append(f"<i>{esc(y['title'])}</i>")
     summary = mohiyat or y["summary"]
     if summary:
-        lines += [esc(summary), ""]
+        lines += ["", f"💡 {esc(summary)}"]
     if points:
-        lines.append("<b>Asosiy qoidalar:</b>")
-        for i, p in enumerate(points):
-            src = f" ({link(point_links[i], 'manba')})" if point_links else ""
-            lines.append(f"• {esc(p)}{src}")
-        lines.append("")
+        lines += ["", "📌 <b>Asosiy o'zgarishlar:</b>"]
+        for i, p in enumerate(points[: len(NUMBERS)]):
+            src = f" {link(point_links[i], '↗')}" if point_links else ""
+            lines.append(f"{NUMBERS[i]} {esc(p)}{src}")
     if kimga:
-        lines.append("🎯 Kimga tegishli: " + esc(", ".join(kimga)))
-    if y["effective_date"]:
-        lines.append(f"📅 Kuchga kirish: {y['effective_date']:%d.%m.%Y}")
+        lines += ["", "👥 <b>Kimga tegishli:</b> " + esc(", ".join(kimga))]
+    if amaliy:
+        lines += ["", f"✅ <b>Nima qilish kerak:</b> {esc(amaliy)}"]
+    dates = [f"qabul qilingan {y['adoption_date']:%d.%m.%Y}" if y["adoption_date"] else "",
+             f"kuchga kiradi {y['effective_date']:%d.%m.%Y}" if y["effective_date"] else ""]
+    dates = [d for d in dates if d]
+    if dates:
+        lines += ["", "📅 " + " · ".join(dates)]
+    tags = hashtags(soha_labels(y["keyword_hits"]))
+    if tags:
+        lines += ["", tags]
     return "\n".join(lines).strip()
 
 
@@ -140,7 +174,9 @@ async def _doc_elements(conn: asyncpg.Connection, lex_id: str) -> list[asyncpg.R
     )
 
 
-async def build_news_draft(conn: asyncpg.Connection, y, llm) -> Draft:
+async def build_news_draft(conn: asyncpg.Connection, y, llm, *, require_ai: bool = False) -> Draft | None:
+    """Yangilik xabari. AI (Claude) bo'lsa — oddiy tildagi sarlavha va tekshirilgan bandlar; bo'lmasa —
+    hujjatning birinchi bandlari. `require_ai` va AI natija bermasa — None (keyingi urinishda qayta)."""
     rows = await _doc_elements(conn, y["lex_id"])
     draft = Draft("yangilik", f"yangilik:{y['lex_id']}", y["lex_id"], "", y["url"], "matndan")
     if llm is not None and rows and hasattr(llm, "news_digest"):
@@ -151,15 +187,18 @@ async def build_news_draft(conn: asyncpg.Connection, y, llm) -> Draft:
                                         [(sid, r["text"][:1500]) for sid, r in by_id.items()], Usage())
             valid = [(p.matn.strip(), by_id[p.source_id]["link"]) for p in d.bandlar
                      if p.source_id in by_id and p.matn.strip()][:4]
-            if valid:  # hech bo'lmasa bitta tekshirilgan band — aks holda matndan
+            if valid:  # hech bo'lmasa bitta tekshirilgan band
                 draft.matn = render_news(y, [v[0] for v in valid], sarlavha=_trim(d.sarlavha, 120),
                                          mohiyat=d.mohiyat.strip() or None, kimga=[k for k in d.kimga if k][:4],
-                                         point_links=[v[1] for v in valid])
+                                         amaliy=d.amaliy.strip() or None, point_links=[v[1] for v in valid])
                 draft.usul = "llm"
         except LLMError as exc:
-            log.warning("news digest llm failed lex_id=%s error=%s — matndan tayyorlanadi", y["lex_id"], exc)
+            log.warning("news digest llm failed lex_id=%s error=%s", y["lex_id"], exc)
     if draft.usul == "matndan":
-        draft.matn = render_news(y, extract_points([r["text"] for r in rows]), kimga=soha_labels(y["keyword_hits"]))
+        if require_ai:
+            return None
+        points = [_strip_band_number(p) for p in extract_points([r["text"] for r in rows])]
+        draft.matn = render_news(y, points, kimga=soha_labels(y["keyword_hits"]))
     return draft
 
 
@@ -242,16 +281,21 @@ async def prepare_news(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]
             """,
             settings.news_max_age_days,
         )
-    ids = []
+    ids, skipped = [], 0
     for y in rows:
         try:
             async with pool.acquire() as conn:
-                draft = await build_news_draft(conn, y, llm)
+                draft = await build_news_draft(conn, y, llm, require_ai=settings.news_require_ai)
+                if draft is None:
+                    skipped += 1
+                    continue
                 xid = await save_draft(conn, draft)
             if xid:
                 ids.append(xid)
         except Exception:  # bitta hujjat qolganlarini to'xtatmasin
             log.error("news draft failed lex_id=%s", y["lex_id"], exc_info=True)
+    if skipped:
+        log.warning("news drafts waiting for AI=%d (NEWS_REQUIRE_AI; Claude ishlamayapti — kredit?)", skipped)
     return ids
 
 
@@ -293,7 +337,14 @@ def message_keyboard(x) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=_buttons(x))
 
 
-def admin_keyboard(x) -> InlineKeyboardMarkup:
+def _channel_row(x, settings: Settings) -> list[list[InlineKeyboardButton]]:
+    """Kanalga joylash — faqat admin qarori bilan, alohida tugma (NEWS_CHANNEL berilgan va hali joylanmagan)."""
+    if not settings.news_channel or x["kanal_xabar_id"] is not None or x["holat"] == "bekor":
+        return []
+    return [[InlineKeyboardButton(text="📢 Kanalga joylash", callback_data=f"x:ch:{x['id']}")]]
+
+
+def admin_keyboard(x, settings: Settings) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=_buttons(x) + [[
         InlineKeyboardButton(text="✅ Yuborish", callback_data=f"x:ok:{x['id']}"),
         InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"x:no:{x['id']}"),
@@ -307,23 +358,29 @@ def channel_keyboard(x, bot_username: str | None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def status_keyboard(x, status: str) -> InlineKeyboardMarkup:
-    """Hal qilingan ko'rinish: amal tugmalari o'rniga holat (bosilsa hech narsa qilmaydi)."""
-    return InlineKeyboardMarkup(inline_keyboard=_buttons(x) + [[
+def status_keyboard(x, status: str, settings: Settings) -> InlineKeyboardMarkup:
+    """Hal qilingan ko'rinish: amal tugmalari o'rniga holat (bosilsa hech narsa qilmaydi) va kanal tugmasi."""
+    return InlineKeyboardMarkup(inline_keyboard=_buttons(x) + _channel_row(x, settings) + [[
         InlineKeyboardButton(text=status, callback_data="x:-")]])
 
 
 # --- admin tasdig'i ------------------------------------------------------------------------
 
 
-async def recipient_count(conn: asyncpg.Connection) -> int:
+async def recipient_count(conn: asyncpg.Connection, settings: Settings) -> int:
+    if settings.news_audience == "admins":
+        return len(settings.admin_telegram_ids)
     return await conn.fetchval("SELECT count(*) FROM foydalanuvchilar WHERE active AND NOT bloklagan")
+
+
+def audience_text(n: int, settings: Settings) -> str:
+    return f"{n} ta adminga" if settings.news_audience == "admins" else f"{n} ta foydalanuvchiga"
 
 
 def preview_header(x, n: int, settings: Settings) -> str:
     turi = "yangilik" if x["turi"] == "yangilik" else "o'zgarish"
-    kanal = f" + {esc(settings.news_channel)} kanali" if settings.news_channel else ""
-    return f"🆕 <b>Tasdiq kutilmoqda</b> · {turi} · {n} ta foydalanuvchiga{kanal}\n\n"
+    ai = "" if x["usul"] == "llm" else " · AI'siz"
+    return f"🆕 <b>Tasdiq kutilmoqda</b> · {turi}{ai} · {audience_text(n, settings)}\n\n"
 
 
 async def show_preview(bot: Bot, pool: asyncpg.Pool, settings: Settings, xabar_id: int, chat_id: int) -> bool:
@@ -332,9 +389,9 @@ async def show_preview(bot: Bot, pool: asyncpg.Pool, settings: Settings, xabar_i
         x = await conn.fetchrow("SELECT * FROM xabarlar WHERE id = $1 AND holat = 'kutilmoqda'", xabar_id)
         if x is None:
             return False
-        n = await recipient_count(conn)
+        n = await recipient_count(conn, settings)
     m = await bot.send_message(chat_id, preview_header(x, n, settings) + x["matn"], parse_mode=ParseMode.HTML,
-                               link_preview_options=NO_PREVIEW, reply_markup=admin_keyboard(x))
+                               link_preview_options=NO_PREVIEW, reply_markup=admin_keyboard(x, settings))
     async with pool.acquire() as conn:
         await conn.execute("UPDATE xabarlar SET admin_xabarlar = admin_xabarlar || $2::jsonb WHERE id = $1",
                            xabar_id, json.dumps([[chat_id, m.message_id]]))
@@ -349,7 +406,7 @@ async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int
     async with pool.acquire() as conn:
         pending = await conn.fetch(
             "SELECT * FROM xabarlar WHERE holat = 'kutilmoqda' AND admin_xabarlar = '[]'::jsonb ORDER BY id")
-        n = await recipient_count(conn)
+        n = await recipient_count(conn, settings)
     shown = 0
     for x in pending:
         header = preview_header(x, n, settings)
@@ -357,7 +414,7 @@ async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int
         for admin_id in sorted(settings.admin_telegram_ids):
             try:
                 m = await bot.send_message(admin_id, header + x["matn"], parse_mode=ParseMode.HTML,
-                                           link_preview_options=NO_PREVIEW, reply_markup=admin_keyboard(x))
+                                           link_preview_options=NO_PREVIEW, reply_markup=admin_keyboard(x, settings))
                 sent.append([admin_id, m.message_id])
             except TelegramAPIError as exc:  # admin botga /start bosmagan bo'lishi mumkin
                 log.warning("admin preview failed admin=%s xabar=%s error=%s", admin_id, x["id"], type(exc).__name__)
@@ -369,14 +426,14 @@ async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int
     return shown
 
 
-async def _mark_previews(bot: Bot, x, status: str) -> None:
+async def _mark_previews(bot: Bot, x, status: str, settings: Settings) -> None:
     previews = x["admin_xabarlar"]
     if isinstance(previews, str):
         previews = json.loads(previews)
     for chat_id, message_id in previews:
         try:
             await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id,
-                                                reply_markup=status_keyboard(x, status))
+                                                reply_markup=status_keyboard(x, status, settings))
         except TelegramAPIError as exc:
             log.warning("admin preview update failed chat=%s error=%s", chat_id, type(exc).__name__)
 
@@ -396,16 +453,16 @@ async def decide(bot: Bot, pool: asyncpg.Pool, settings: Settings, xabar_id: int
             holat = await conn.fetchval("SELECT holat FROM xabarlar WHERE id = $1", xabar_id)
             return f"Bu xabar allaqachon hal qilingan ({holat})" if holat else "Xabar topilmadi"
     if not approve:
-        await _mark_previews(bot, x, "❌ Bekor qilindi")
+        await _mark_previews(bot, x, "❌ Bekor qilindi", settings)
         return "Bekor qilindi"
     if is_daytime(settings):
-        await _mark_previews(bot, x, "✅ Tasdiqlandi — yuborilmoqda")
+        await _mark_previews(bot, x, "✅ Tasdiqlandi — yuborilmoqda", settings)
         task = asyncio.create_task(send_approved(bot, pool, settings))
         _background.add(task)
         task.add_done_callback(_background.discard)
         return "Tasdiqlandi, yuborilmoqda"
     when = f"{settings.news_send_start_hour:02d}:00"
-    await _mark_previews(bot, x, f"✅ Tasdiqlandi — {when} da yuboriladi")
+    await _mark_previews(bot, x, f"✅ Tasdiqlandi — {when} da yuboriladi", settings)
     return f"Tasdiqlandi, {when} da yuboriladi"
 
 
@@ -430,9 +487,16 @@ async def _send_one(bot: Bot, chat_id: int, x) -> str:
     return "xato"
 
 
-async def _post_to_channel(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) -> None:
-    if not settings.news_channel or x["kanal_xabar_id"] is not None:
-        return
+async def post_to_channel(bot: Bot, pool: asyncpg.Pool, settings: Settings, xabar_id: int) -> str:
+    """Admin "📢 Kanalga joylash" tugmasi: tasdiqlangan xabarni NEWS_CHANNEL ga bir marta joylaydi."""
+    async with pool.acquire() as conn:
+        x = await conn.fetchrow("SELECT * FROM xabarlar WHERE id = $1", xabar_id)
+    if x is None or not settings.news_channel:
+        return "Kanal sozlanmagan"
+    if x["kanal_xabar_id"] is not None:
+        return "Allaqachon kanalga joylangan"
+    if x["holat"] not in ("tasdiqlandi", "yuborildi"):
+        return "Avval xabarni tasdiqlang"
     try:
         me = await bot.me()
         username = me.username
@@ -441,26 +505,35 @@ async def _post_to_channel(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) 
     try:
         m = await bot.send_message(settings.news_channel, x["matn"], parse_mode=ParseMode.HTML,
                                    link_preview_options=NO_PREVIEW, reply_markup=channel_keyboard(x, username))
-    except TelegramAPIError as exc:  # bot kanalda admin emas yoki kanal noto'g'ri — foydalanuvchilarga baribir
+    except TelegramAPIError as exc:  # bot kanalda admin emas yoki kanal noto'g'ri
         log.warning("kanalga joylanmadi channel=%s xabar=%s error=%s", settings.news_channel, x["id"],
                     type(exc).__name__)
-        return
+        return "Kanalga joylanmadi — bot kanalda adminmi?"
     async with pool.acquire() as conn:
         await conn.execute("UPDATE xabarlar SET kanal_xabar_id = $2 WHERE id = $1", x["id"], m.message_id)
+    return "Kanalga joylandi"
+
+
+async def _recipients(conn: asyncpg.Connection, settings: Settings, xabar_id: int) -> list[int]:
+    """Hali yuborilmaganlar: NEWS_AUDIENCE=admins — faqat adminlar; all — /start bosgan hamma."""
+    if settings.news_audience == "admins":
+        sent = {r["telegram_id"] for r in await conn.fetch(
+            "SELECT telegram_id FROM xabar_yuborishlar WHERE xabar_id = $1", xabar_id)}
+        return [a for a in sorted(settings.admin_telegram_ids) if a not in sent]
+    return [r["telegram_id"] for r in await conn.fetch(
+        """
+        SELECT f.telegram_id FROM foydalanuvchilar f
+        WHERE f.active AND NOT f.bloklagan
+          AND NOT EXISTS (SELECT 1 FROM xabar_yuborishlar y WHERE y.xabar_id = $1 AND y.telegram_id = f.telegram_id)
+        ORDER BY f.id
+        """,
+        xabar_id,
+    )]
 
 
 async def _deliver(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) -> dict[str, int]:
-    await _post_to_channel(bot, pool, settings, x)
     async with pool.acquire() as conn:
-        recipients = [r["telegram_id"] for r in await conn.fetch(
-            """
-            SELECT f.telegram_id FROM foydalanuvchilar f
-            WHERE f.active AND NOT f.bloklagan
-              AND NOT EXISTS (SELECT 1 FROM xabar_yuborishlar y WHERE y.xabar_id = $1 AND y.telegram_id = f.telegram_id)
-            ORDER BY f.id
-            """,
-            x["id"],
-        )]
+        recipients = await _recipients(conn, settings, x["id"])
     counts = {"ok": 0, "bloklangan": 0, "xato": 0}
     for chat_id in recipients:
         result = await _send_one(bot, chat_id, x)
@@ -477,7 +550,7 @@ async def _deliver(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) -> dict[
             "UPDATE xabarlar SET holat = 'yuborildi', yuborildi_at = now() WHERE id = $1 RETURNING *", x["id"])
         total = await conn.fetchval(
             "SELECT count(*) FROM xabar_yuborishlar WHERE xabar_id = $1 AND natija = 'ok'", x["id"])
-    await _mark_previews(bot, x, f"✅ Yuborildi: {total} ta foydalanuvchiga")
+    await _mark_previews(bot, x, f"✅ Yuborildi: {audience_text(total, settings)}", settings)
     log.info("xabar sent id=%s ok=%d blocked=%d failed=%d", x["id"], counts["ok"], counts["bloklangan"], counts["xato"])
     return counts
 

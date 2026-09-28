@@ -8,7 +8,7 @@ ishga tushishda tekshiradi — masalan collector Telegram tokensiz ham ishlay ol
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator
@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     news_send_end_hour: int = Field(default=20, ge=1, le=24)
     # Shundan eski RSS yangiliklari uchun xabar tayyorlanmaydi.
     news_max_age_days: int = Field(default=3, ge=1)
+    # Tasdiqlangan xabar kimga yuboriladi: "admins" (hozircha) yoki "all" (/start bosgan hamma).
+    news_audience: Literal["admins", "all"] = "admins"
+    # True — xabar faqat AI (Claude) bilan tayyorlanadi; AI ishlamasa (kredit yo'q) keyingi urinishgacha kutiladi.
+    news_require_ai: bool = True
     # Majburiy kanal a'zoligi (app/bot/subscription.py): "@kanal" yoki "-100..." id; bo'sh — o'chiq.
     # Bot kanalda admin bo'lishi kerak. URL bo'sh bo'lsa "@kanal" dan https://t.me/kanal.
     required_channel: str | None = None

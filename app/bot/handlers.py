@@ -55,7 +55,7 @@ from app.retrieval.articles import get_article, get_section, normalize_article_n
 from app.retrieval.query import is_followup, normalize
 from app.services import kalendar, kalkulyator, obuna
 from app.services.answer import answer_question, answer_without_llm
-from app.services.xabarlar import decide, show_preview
+from app.services.xabarlar import decide, post_to_channel, show_preview
 from app.services.users import (
     PROFILE_FIELDS,
     collect_stats,
@@ -338,11 +338,19 @@ async def on_rate(query: CallbackQuery, pool: asyncpg.Pool) -> None:
 async def on_xabar_decision(query: CallbackQuery, pool: asyncpg.Pool, settings: Settings) -> None:
     """Admin: yangilik/o'zgarish xabarini tasdiqlash (x:ok:<id>) yoki bekor qilish (x:no:<id>)."""
     parts = (query.data or "").split(":")
-    if len(parts) != 3 or parts[1] not in ("ok", "no") or not parts[2].isdigit():
+    if len(parts) != 3 or parts[1] not in ("ok", "no", "ch") or not parts[2].isdigit():
         await query.answer()  # "x:-" — hal qilingan ko'rinishdagi holat tugmasi
         return
     if not settings.is_admin(query.from_user.id):
         await query.answer("Faqat adminlar uchun", show_alert=True)
+        return
+    if parts[1] == "ch":  # kanalga joylash — faqat admin qarori bilan
+        result = await post_to_channel(query.bot, pool, settings, int(parts[2]))
+        await query.answer(result, show_alert=result != "Kanalga joylandi")
+        if result == "Kanalga joylandi" and query.message.reply_markup:
+            rows = [row for row in query.message.reply_markup.inline_keyboard
+                    if not any((b.callback_data or "").startswith("x:ch:") for b in row)]
+            await query.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
         return
     result = await decide(query.bot, pool, settings, int(parts[2]), query.from_user.id, parts[1] == "ok")
     await query.answer(result)

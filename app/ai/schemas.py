@@ -41,6 +41,8 @@ class NewsDigest(BaseModel):
     mohiyat: str = Field(description="1-2 gap: hujjat nima qiladi va kimga tegishli, faqat matndan")
     bandlar: list[DigestPoint] = Field(description="2-4 ta eng muhim qoida, har biri manba elementi bilan")
     kimga: list[str] = Field(description="Kimga tegishli: 1-4 ta qisqa guruh (masalan: YaTT, qurilish korxonalari)")
+    amaliy: str = Field(description="Buxgalter yoki tadbirkor nima qilishi kerak — 1 gap, faqat matndan; "
+                                    "matnda bunday talab bo'lmasa bo'sh qator")
 
 
 class NewsClassification(BaseModel):
