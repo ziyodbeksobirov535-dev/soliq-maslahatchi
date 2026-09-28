@@ -12,6 +12,9 @@
 - Tasdiqsiz hech kimga yuborilmaydi. Kechasi tasdiqlangani ertalab yuboriladi.
 - Qayta ishga tushish xavfsiz: `xabarlar.kalit` UNIQUE, `xabar_yuborishlar` PK — hech kimga ikki marta ketmaydi.
 - Botni bloklagan foydalanuvchi belgilanadi (`foydalanuvchilar.bloklagan`) va keyingi xabarlar unga ketmaydi.
+- NEWS_CHANNEL berilgan bo'lsa, tasdiqlangan xabar kanalga ham bir marta joylanadi (`xabarlar.kanal_xabar_id`).
+  Kanal postida faqat havola tugmalari: "Lex.uz'da ochish" va "Botda savol berish" (callback tugmalari kanalda
+  bosilsa javob kanalga ketib qolardi).
 """
 
 from __future__ import annotations
@@ -297,6 +300,13 @@ def admin_keyboard(x) -> InlineKeyboardMarkup:
     ]])
 
 
+def channel_keyboard(x, bot_username: str | None) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="📄 Lex.uz'da ochish", url=x["havola"])]]
+    if bot_username:
+        rows.append([InlineKeyboardButton(text="🤖 Botda savol berish", url=f"https://t.me/{bot_username}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def status_keyboard(x, status: str) -> InlineKeyboardMarkup:
     """Hal qilingan ko'rinish: amal tugmalari o'rniga holat (bosilsa hech narsa qilmaydi)."""
     return InlineKeyboardMarkup(inline_keyboard=_buttons(x) + [[
@@ -322,7 +332,8 @@ async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int
     shown = 0
     for x in pending:
         turi = "yangilik" if x["turi"] == "yangilik" else "o'zgarish"
-        header = f"🆕 <b>Tasdiq kutilmoqda</b> · {turi} · {n} ta foydalanuvchiga\n\n"
+        kanal = f" + {esc(settings.news_channel)} kanali" if settings.news_channel else ""
+        header = f"🆕 <b>Tasdiq kutilmoqda</b> · {turi} · {n} ta foydalanuvchiga{kanal}\n\n"
         sent: list[list[int]] = []
         for admin_id in sorted(settings.admin_telegram_ids):
             try:
@@ -400,7 +411,27 @@ async def _send_one(bot: Bot, chat_id: int, x) -> str:
     return "xato"
 
 
-async def _deliver(bot: Bot, pool: asyncpg.Pool, x) -> dict[str, int]:
+async def _post_to_channel(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) -> None:
+    if not settings.news_channel or x["kanal_xabar_id"] is not None:
+        return
+    try:
+        me = await bot.me()
+        username = me.username
+    except (TelegramAPIError, AttributeError):
+        username = None
+    try:
+        m = await bot.send_message(settings.news_channel, x["matn"], parse_mode=ParseMode.HTML,
+                                   link_preview_options=NO_PREVIEW, reply_markup=channel_keyboard(x, username))
+    except TelegramAPIError as exc:  # bot kanalda admin emas yoki kanal noto'g'ri — foydalanuvchilarga baribir
+        log.warning("kanalga joylanmadi channel=%s xabar=%s error=%s", settings.news_channel, x["id"],
+                    type(exc).__name__)
+        return
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE xabarlar SET kanal_xabar_id = $2 WHERE id = $1", x["id"], m.message_id)
+
+
+async def _deliver(bot: Bot, pool: asyncpg.Pool, settings: Settings, x) -> dict[str, int]:
+    await _post_to_channel(bot, pool, settings, x)
     async with pool.acquire() as conn:
         recipients = [r["telegram_id"] for r in await conn.fetch(
             """
@@ -455,7 +486,7 @@ async def send_approved(bot: Bot, pool: asyncpg.Pool, settings: Settings, now: d
                 )
             if x is None:
                 break
-            await _deliver(bot, pool, x)
+            await _deliver(bot, pool, settings, x)
             done += 1
     return done
 

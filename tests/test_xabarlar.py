@@ -32,14 +32,14 @@ NEWS = {
 }
 
 
-def settings(*, day: bool = True) -> Settings:
+def settings(*, day: bool = True, **kw) -> Settings:
     if day:
         hours = dict(news_send_start_hour=0, news_send_end_hour=24)
     else:  # hozirgi soat oraliqqa kirmaydi
         h = datetime.now(ZoneInfo("Asia/Tashkent")).hour
         hours = dict(news_send_start_hour=h + 1, news_send_end_hour=h + 2) if h < 22 else \
             dict(news_send_start_hour=0, news_send_end_hour=1)
-    return Settings(_env_file=None, admin_telegram_ids=frozenset({ADMIN}), **hours)
+    return Settings(_env_file=None, admin_telegram_ids=frozenset({ADMIN}), **hours, **kw)
 
 
 class FakeBot:
@@ -56,6 +56,9 @@ class FakeBot:
 
     async def edit_message_reply_markup(self, chat_id, message_id, reply_markup):
         self.edits.append((chat_id, message_id, reply_markup))
+
+    async def me(self):
+        return SimpleNamespace(username="soliqexpertibot")
 
 
 def buttons(markup) -> list[str]:
@@ -347,3 +350,28 @@ def test_blocked_user_is_unblocked_when_writing_again(xdb):
         return await conn.fetchval("SELECT bloklagan FROM foydalanuvchilar WHERE telegram_id = $1", BLOCKED)
 
     assert run(with_conn(xdb, go)) is False
+
+
+def test_approved_message_is_posted_to_channel_once(xdb):
+    xid = prepared(xdb)
+    bot = FakeBot()
+    cfg = settings(news_channel="@soliq_kanal")
+
+    async def go(pool):
+        await xabarlar.notify_admins(bot, pool, cfg)
+        await xabarlar.decide(bot, pool, cfg, xid, ADMIN, approve=True)
+        await asyncio.gather(*xabarlar._background)
+        async with pool.acquire() as conn:
+            await conn.execute("UPDATE xabarlar SET holat = 'tasdiqlandi', yuborish_boshlangan = NULL WHERE id = $1",
+                               xid)  # qayta yuborish holati: kanalga ikkinchi marta joylanmasin
+        await xabarlar.send_approved(bot, pool, cfg)
+        async with pool.acquire() as conn:
+            return await conn.fetchval("SELECT kanal_xabar_id FROM xabarlar WHERE id = $1", xid)
+
+    kanal_id = with_pool(xdb, go)
+    preview = bot.sent[0][1]
+    assert "+ @soliq_kanal kanali" in preview
+    posts = [s for s in bot.sent if s[0] == "@soliq_kanal"]
+    assert len(posts) == 1 and kanal_id is not None
+    urls = [b.url for row in posts[0][2].inline_keyboard for b in row]
+    assert urls == [NEWS["url"], "https://t.me/soliqexpertibot"]

@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # Bot kanalda admin bo'lishi kerak. URL bo'sh bo'lsa "@kanal" dan https://t.me/kanal.
     required_channel: str | None = None
     required_channel_url: str | None = None
+    # Admin tasdiqlagan yangilik/o'zgarish xabarlari shu kanalga ham joylanadi (bo'sh — joylanmaydi).
+    # Bot kanalda xabar yozish huquqiga ega admin bo'lishi kerak.
+    news_channel: str | None = None
 
     log_level: str = "INFO"
 
