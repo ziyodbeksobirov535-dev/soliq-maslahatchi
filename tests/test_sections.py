@@ -268,7 +268,7 @@ def test_import_pending_orders_and_marks(pool_db, monkeypatch):
 
     stats, rows = with_pool(pool_db, go)
     # avval Prezident va Vazirlar Mahkamasi hujjatlari, ichida yangilari
-    top = sorted((i for i in items if discovery.has_strong_hit(discovery.text_keyword_hits(i.title))),
+    top = sorted((i for i in items if discovery.is_wanted(i.doc_type, i.title, i.site_status)),
                  key=lambda i: (any(k in (i.doc_type or "") for k in ("Prezident", "Vazirlar Mahkamasi")),
                                 i.adoption_date), reverse=True)
     assert loaded == [i.lex_id for i in top[:3]]

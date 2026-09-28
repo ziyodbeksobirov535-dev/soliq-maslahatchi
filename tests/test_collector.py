@@ -312,18 +312,39 @@ def test_discover_merges_queries_and_isolates_errors(monkeypatch):
     assert by_id[p2[0].lex_id][8] == ["soliq"]
 
 
-def test_discover_relevance_needs_strong_word_and_active_status(monkeypatch):
-    base = search_page("search-soliq-imtiyoz.html.gz").items[0]
-    items = [
-        base,
-        lexuz.SearchItem(**{**base.__dict__, "lex_id": "-1", "title": "Bank xizmatlari to'g'risida"}),
-        lexuz.SearchItem(**{**base.__dict__, "lex_id": "-2", "site_status": "r"}),
+def test_discover_relevance_president_and_cabinet_on_tax_topics_only(monkeypatch):
+    items = search_page("search-soliq-imtiyoz.html.gz").items
+    pf = next(i for i in items if i.lex_id == "-7106760")  # Prezident farmoni, "soliq va bojxona imtiyozlari"
+    joint = next(i for i in items if i.lex_id == "-7282554")  # vazirlik + Soliq qo'mitasi qo'shma qarori
+    vm = "Oʻzbekiston Respublikasi Vazirlar Mahkamasining qarori"
+    cases = [
+        pf, joint,
+        lexuz.SearchItem(**{**pf.__dict__, "lex_id": "-1", "title": "Bank xizmatlari to'g'risida"}),
+        lexuz.SearchItem(**{**pf.__dict__, "lex_id": "-2", "site_status": "r"}),
+        lexuz.SearchItem(**{**pf.__dict__, "lex_id": "-3", "doc_type": vm,
+                            "title": "Kichik biznes subyektlarini qo'llab-quvvatlash to'g'risida"}),
+        lexuz.SearchItem(**{**pf.__dict__, "lex_id": "-4", "doc_type": vm,
+                            "title": "Litsenziyalash tartib-taomillarini takomillashtirish to'g'risida"}),
+        lexuz.SearchItem(**{**pf.__dict__, "lex_id": "-5",
+                            "doc_type": "Oʻzbekiston Respublikasi Vazirlar Mahkamasi huzuridagi Soliq qoʻmitasining buyrugʻi"}),
     ]
-    monkeypatch.setattr(lexuz, "search", lambda url, *, client, max_pages: (items, 3))
+    monkeypatch.setattr(lexuz, "search", lambda url, *, client, max_pages: (cases, len(cases)))
     conn = FakeConn()
     asyncio.run(discovery.discover(FakePool(conn), client=None, queries=("soliq",)))
     relevant = {r[0]: r[10] for r in inserts(conn, "topilgan_hujjatlar")}
-    assert relevant == {base.lex_id: True, "-1": False, "-2": False}
+    assert relevant == {"-7106760": True, "-7282554": False, "-1": False, "-2": False, "-3": True, "-4": False,
+                        "-5": False}
+
+
+@pytest.mark.parametrize("title,hits", [
+    ("Soliq maʼmuriyatchiligini takomillashtirish to'g'risida", ["soliq"]),
+    ("Buxgalteriya hisobi milliy standartlarini tasdiqlash", ["buxgalter"]),
+    ("Yakka tartibdagi tadbirkorlar uchun imtiyozlar", ["tadbirkor", "yakka tartibdagi", "imtiyoz"]),
+    ("Mehnat shartnomalari bo'yicha", []),
+    ("Tartibga solish to'g'risida", []),  # "soliq" so'z o'rtasidan emas
+])
+def test_topic_hits(title, hits):
+    assert discovery.topic_hits(title) == hits
 
 
 def test_import_pending_disabled_by_zero_limit():

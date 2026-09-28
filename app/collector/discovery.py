@@ -7,7 +7,10 @@ imtiyozlar va faoliyat yuritish tartiblarini (litsenziya, ruxsatnoma, xabardor q
 
 - Qidiruv: hujjat nomi bo'yicha, faqat amaldagi (`status=Y`), lotin o'zbekcha (`lang=4`).
   Qidiruvlar ro'yxati 2026-09-27 dagi jonli natijalar soni bilan tanlangan (jami ~1 050 noyob hujjat, ~980 relevant).
-- Relevantlik: nomida `news.KUCHLI_SOZLAR` dan so'z bor bo'lsa. Model ishlatilmaydi — qidiruv o'zi mavzuli.
+- Relevantlik (foydalanuvchi qarori 2026-09-28, baza hajmi): faqat Prezident farmoni/qarori va Vazirlar
+  Mahkamasi qarori, nomida soliq, buxgalteriya hisobi yoki tadbirkorlikka oid so'z (`MAVZU_SOZLARI`) bo'lsa.
+  Idoraviy hujjatlar, qo'shma qarorlar, farmoyishlar va boshqa mavzular (mehnat, litsenziya, ruxsatnoma...) —
+  yuklanmaydi. Model ishlatilmaydi.
 - Import: kunlik limit (`DISCOVERY_DAILY_LIMIT`, 0 = o'chiq). Avval Prezident va Vazirlar Mahkamasi hujjatlari,
   keyin yangi qabul qilinganlar. Holat kartochkadan (`import_document`). Xato bo'lsa 3 martagacha qayta urinadi.
 - Import qilinganlari `jobs.tracked_documents` orqali haftalik yangilashda kuzatiladi.
@@ -25,7 +28,10 @@ import asyncpg
 
 import lexuz
 from app.collector.importer import import_document
-from app.collector.news import has_strong_hit, text_keyword_hits
+import re
+
+from app.collector.news import text_keyword_hits
+from app.retrieval.query import normalize
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +55,20 @@ QIDIRUVLAR: tuple[str, ...] = (
     "faoliyat yuritish",            # 24
     "tadbirkorlik",                 # 319
 )
+# Yuklanadigan hujjat turlari (Lex.uz qidiruv badge'i, normallashtirilgan) — aynan shu turlar.
+DOC_TYPES = (
+    "ozbekiston respublikasi prezidentining farmoni",
+    "ozbekiston respublikasi prezidentining qarori",
+    "ozbekiston respublikasi vazirlar mahkamasining qarori",
+)
+# Mavzu: soliq, buxgalteriya hisobi, tadbirkorlik (so'z boshidan, normallashtirilgan).
+MAVZU_SOZLARI = (
+    "soliq", "solig", "qqs", "qoshilgan qiymat", "aksiz", "yigim", "davlat boji", "boj",
+    "buxgalter", "moliyaviy hisobot", "hisob standart", "bhms", "bhs", "schyotlar rejasi", "audit",
+    "inventarizatsiya", "hisobvaraq-faktura", "elektron hisobvaraq", "kassa", "onlayn-nazorat", "ish haqi",
+    "tadbirkor", "yakka tartibdagi", "biznes", "imtiyoz", "preferensiya", "subsidiya",
+)
+_MAVZU_RE = {k: re.compile(r"(?<![0-9a-zа-яёўқғҳ])" + re.escape(k)) for k in MAVZU_SOZLARI}
 MAX_PAGES_PER_QUERY = 30  # 20 ta/sahifa → 600 ta; eng kattasi 319
 MAX_IMPORT_ATTEMPTS = 3
 
@@ -70,9 +90,20 @@ class ImportStats:
     errors: int = 0
 
 
+def topic_hits(title: str) -> list[str]:
+    norm = normalize(f" {title} ")
+    return [k for k, rx in _MAVZU_RE.items() if rx.search(norm)]
+
+
+def is_wanted(doc_type: str | None, title: str, site_status: str | None) -> bool:
+    """Bazaga yuklanadimi: Prezident/VM hujjati, mavzusi soliq/buxgalteriya/tadbirkorlik, amaldagi."""
+    return (normalize(doc_type or "").strip() in DOC_TYPES and bool(topic_hits(title))
+            and site_status in (None, "y"))
+
+
 async def _upsert(conn: asyncpg.Connection, item: lexuz.SearchItem, queries: list[str]) -> None:
     hits = text_keyword_hits(item.title)
-    relevant = has_strong_hit(hits) and item.site_status in (None, "y")
+    relevant = is_wanted(item.doc_type, item.title, item.site_status)
     await conn.execute(
         """
         INSERT INTO topilgan_hujjatlar (lex_id, title, doc_type, number, reg_number, adoption_date, url,
@@ -118,6 +149,19 @@ async def discover(pool: asyncpg.Pool, client: lexuz.LexUzClient,
     log.info("discovery done queries=%d found=%d unique=%d relevant=%d errors=%d",
              stats.queries, stats.found, stats.unique, stats.relevant, stats.errors)
     return stats
+
+
+async def reclassify(pool: asyncpg.Pool) -> tuple[int, int]:
+    """Mavjud ro'yxatni joriy filtr bo'yicha qayta baholaydi (Lex.uz'ga so'rovsiz). (relevant, o'zgargan)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT lex_id, title, doc_type, site_status, relevant FROM topilgan_hujjatlar")
+        changes = [(r["lex_id"], want) for r in rows
+                   if (want := is_wanted(r["doc_type"], r["title"], r["site_status"])) != r["relevant"]]
+        if changes:
+            await conn.executemany("UPDATE topilgan_hujjatlar SET relevant = $2 WHERE lex_id = $1", changes)
+        total = await conn.fetchval("SELECT count(*) FROM topilgan_hujjatlar WHERE relevant")
+    log.info("discovery reclassify relevant=%d changed=%d", total, len(changes))
+    return total, len(changes)
 
 
 async def import_pending(pool: asyncpg.Pool, client: lexuz.LexUzClient, limit: int, today: date) -> ImportStats:

@@ -6,6 +6,7 @@
     python -m app.collector.jobs discover   # Lex.uz qidiruvi: amaldagi eski hujjatlar ro'yxatini yig'ish
     python -m app.collector.jobs import-found [--limit N]   # topilganlardan N tasini import qilish
     python -m app.collector.jobs vocab      # imlo tuzatish lug'atini (sozlar) qayta qurish
+    python -m app.collector.jobs reclassify # topilgan hujjatlarni joriy filtr bo'yicha qayta baholash (so'rovsiz)
 
 Har bir job xatoni o'zi ushlaydi va log qiladi — scheduler va bot yiqilmaydi (spec 24).
 """
@@ -20,7 +21,7 @@ import asyncpg
 
 import lexuz
 from app.collector.core_documents import approved_documents
-from app.collector.discovery import discover, import_pending
+from app.collector.discovery import discover, import_pending, reclassify
 from app.collector.importer import import_document
 from app.collector.news import process_rss
 from app.config import Settings, get_settings
@@ -154,7 +155,8 @@ async def import_found_job(pool: asyncpg.Pool, settings: Settings, limit: int | 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collector job'larini qo'lda ishga tushirish")
-    parser.add_argument("job", choices=["rss", "future", "refresh", "discover", "import-found", "vocab"])
+    parser.add_argument("job", choices=["rss", "future", "refresh", "discover", "import-found", "vocab",
+                                        "reclassify"])
     parser.add_argument("--limit", type=int, default=None, help="import-found: nechta hujjat (sukut: DISCOVERY_DAILY_LIMIT)")
     args = parser.parse_args()
     settings = get_settings()
@@ -176,6 +178,8 @@ def main() -> None:
                 await import_found_job(pool, settings, args.limit)
             elif args.job == "vocab":
                 await refresh_vocabulary(pool)
+            elif args.job == "reclassify":
+                await reclassify(pool)
             else:
                 await weekly_refresh_job(pool, settings)
         finally:
