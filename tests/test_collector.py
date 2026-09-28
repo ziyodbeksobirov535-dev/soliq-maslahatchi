@@ -434,7 +434,7 @@ def test_process_rss_llm_error_falls_back_to_keyword(rss_env):
     conn = FakeConn()
     stats = asyncio.run(news.process_rss(FakePool(conn), FakeRssClient(), FakeNewsLLM(fail=True), date(2026, 9, 27)))
     assert stats.errors == 0
-    assert stats.relevant == 27 + 48  # model javob bermasa, kalit so'z natijasi saqlanadi
+    assert stats.relevant == 27  # model javob bermasa — faqat kuchli so'z (soha so'zi yetarli emas)
     assert {a[10] for a in saved_news(conn).values() if a[9]} == {"keyword"}
 
 

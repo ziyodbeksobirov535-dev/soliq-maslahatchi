@@ -163,13 +163,14 @@ async def process_rss(pool: asyncpg.Pool, client: lexuz.LexUzClient, llm, today:
                 doc = await asyncio.to_thread(lexuz.load, item.lex_id, client=client)
                 card = await asyncio.to_thread(lexuz.load_card, item.lex_id, client=client)
 
-            relevant, method, topics, summary = True, "keyword", [], None
+            # Model bo'lmasa yoki xato bersa (kredit tugagan) — faqat kuchli so'z relevant (kalitsiz rejim bilan bir xil).
+            relevant, method, topics, summary = has_strong_hit(hits), "keyword", [], None
             if llm is not None:
                 try:
                     c = await asyncio.to_thread(llm.classify_news, item.title, _meta(item), _excerpt(doc), stats.usage)
                     relevant, method, topics, summary = c.relevant, "llm", c.topics[:3], c.summary.strip() or None
                 except LLMError as exc:
-                    log.warning("news classify failed lex_id=%s error=%s — keyword natijasi saqlanadi", item.lex_id, exc)
+                    log.warning("news classify failed lex_id=%s error=%s — kuchli so'z bo'yicha", item.lex_id, exc)
 
             imported = False
             if relevant and doc is not None:
