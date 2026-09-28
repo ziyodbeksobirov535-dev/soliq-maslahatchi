@@ -18,6 +18,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import asyncpg
 from aiogram import F, Router
@@ -30,8 +31,10 @@ from aiogram.types import (
     ErrorEvent,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LabeledPrice,
     LinkPreviewOptions,
     Message,
+    PreCheckoutQuery,
 )
 
 from app.ai.client import LLM
@@ -50,7 +53,7 @@ from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import is_followup, normalize
-from app.services import kalendar, kalkulyator
+from app.services import kalendar, kalkulyator, obuna
 from app.services.answer import answer_question, answer_without_llm
 from app.services.xabarlar import decide, show_preview
 from app.services.users import (
@@ -96,6 +99,7 @@ START_TEXT = (
     "/modda 461 — Soliq kodeksi moddasi (boshqa hujjat: /modda 106 mehnat). Faqat raqam yozsangiz ham bo'ladi.\n"
     "/hisobla — soliq kalkulyatori (QQS, JSHDS, aylanma solig'i, penya)\n"
     "/kalendar — hisobot va to'lov muddatlari, eslatmalar\n"
+    "/obuna — tarif va kunlik limit\n"
     "/profil — soha, soliq rejimi va tashkiliy shakl (tugmalar bilan)\n"
     "/yangiliklar — qonunchilikdagi yangiliklar\n\n"
     "Hozir bazada: Soliq, Mehnat, Fuqarolik, Bojxona kodekslari va Buxgalteriya hisobi to'g'risidagi qonun.\n"
@@ -145,10 +149,19 @@ async def on_subscription_check(query: CallbackQuery, settings: Settings, member
 # --- /profil -------------------------------------------------------------------------
 
 
+async def user_limit(conn: asyncpg.Connection, user, settings: Settings) -> int:
+    """Kunlik limit: foydalanuvchiga alohida berilgan bo'lsa — o'sha; aks holda bepul yoki premium."""
+    if user.daily_limit is not None:
+        return effective_limit(user, settings.daily_question_limit)
+    sub = await obuna.get_subscription(conn, user.telegram_id)
+    return obuna.daily_limit(sub, datetime.now(timezone.utc), settings.daily_question_limit,
+                             settings.premium_daily_limit)
+
+
 async def _profile_text(conn: asyncpg.Connection, tg_id: int, profile: dict, settings: Settings) -> str:
     user = await ensure_user(conn, tg_id)
     used = await questions_today(conn, tg_id, datetime.now(timezone.utc), settings.tz)
-    limit = "cheklanmagan (admin)" if settings.is_admin(tg_id) else str(effective_limit(user, settings.daily_question_limit))
+    limit = "cheklanmagan (admin)" if settings.is_admin(tg_id) else str(await user_limit(conn, user, settings))
     lines = ["<b>Profil</b>", f"Bugungi savollar: {used} / {esc(limit)}", ""]
     for key, title in PROFILE_FIELDS.items():
         lines.append(f"{esc(title.split(' (')[0])}: {esc(profile.get(key, '—'))}")
@@ -405,6 +418,103 @@ async def on_calc_value(message: Message, pool: asyncpg.Pool, settings: Settings
                          reply_markup=markup)
 
 
+# --- /obuna ------------------------------------------------------------------------------
+
+
+def payments_enabled(settings: Settings) -> bool:
+    return settings.payment_provider_token is not None and settings.premium_price_uzs > 0
+
+
+async def cmd_obuna(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    now = datetime.now(timezone.utc)
+    async with pool.acquire() as conn:
+        await ensure_user(conn, message.from_user.id)
+        sub = await obuna.get_subscription(conn, message.from_user.id)
+    lines = ["⭐ <b>Obuna</b>", ""]
+    if sub.active(now):
+        lines.append(f"Premium — {obuna.expires_text(sub.until, settings.tz)} gacha, "
+                     f"kuniga {settings.premium_daily_limit} ta savol.")
+    else:
+        lines.append(f"Bepul tarif — kuniga {settings.daily_question_limit} ta savol.")
+    lines.append(f"Premium: kuniga {settings.premium_daily_limit} ta savol, {settings.premium_days} kun.")
+    markup = None
+    if payments_enabled(settings):
+        price = kalkulyator.fmt(Decimal(settings.premium_price_uzs))
+        markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+            text=f"💳 Premium — {price} so'm / {settings.premium_days} kun", callback_data="o:buy")]])
+    elif settings.payment_contact:
+        lines += ["", f"Premium olish uchun murojaat qiling: {esc(settings.payment_contact)}"]
+    else:
+        lines += ["", "Premium tez orada ishga tushadi."]
+    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=markup)
+
+
+async def on_buy(query: CallbackQuery, settings: Settings) -> None:
+    await query.answer()
+    if not payments_enabled(settings):
+        return
+    await query.bot.send_invoice(
+        chat_id=query.from_user.id,
+        title="Premium obuna",
+        description=f"{settings.premium_days} kun: kuniga {settings.premium_daily_limit} ta savol",
+        payload=obuna.payload(query.from_user.id, settings.premium_days),
+        currency="UZS",
+        prices=[LabeledPrice(label=f"Premium, {settings.premium_days} kun", amount=settings.premium_price_uzs * 100)],
+        provider_token=settings.payment_provider_token.get_secret_value(),
+    )
+
+
+async def on_pre_checkout(query: PreCheckoutQuery, settings: Settings) -> None:
+    parsed = obuna.parse_payload(query.invoice_payload)
+    ok = (payments_enabled(settings) and parsed is not None and parsed[0] == query.from_user.id
+          and query.currency == "UZS" and query.total_amount == settings.premium_price_uzs * 100)
+    await query.answer(ok=ok, error_message=None if ok else "To'lov ma'lumotlari mos emas, qayta urinib ko'ring.")
+
+
+async def on_paid(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    p = message.successful_payment
+    parsed = obuna.parse_payload(p.invoice_payload)
+    days = parsed[1] if parsed else settings.premium_days
+    async with pool.acquire() as conn:
+        await ensure_user(conn, message.from_user.id)
+        until = await obuna.record_payment(conn, message.from_user.id, p.total_amount, p.currency, days,
+                                           p.telegram_payment_charge_id, p.provider_payment_charge_id,
+                                           datetime.now(timezone.utc))
+        if until is None:  # Telegram bir to'lovni qayta yubordi
+            until = (await obuna.get_subscription(conn, message.from_user.id)).until
+    log.info("payment received user=%s amount=%s %s", message.from_user.id, p.total_amount, p.currency)
+    await message.answer(f"✅ To'lov qabul qilindi. Premium {obuna.expires_text(until, settings.tz)} gacha faol.")
+
+
+async def cmd_obuna_ber(message: Message, command: CommandObject, pool: asyncpg.Pool, settings: Settings) -> None:
+    """Admin: /obuna_ber <telegram_id> <kun> — qo'lda to'lov (Click/Payme o'tkazmasi) uchun."""
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    args = (command.args or "").split()
+    if len(args) != 2 or not args[0].isdigit() or not args[1].isdigit() or int(args[1]) <= 0:
+        await message.answer("Foydalanish: /obuna_ber <telegram_id> <kun>, masalan: /obuna_ber 123456789 30")
+        return
+    tg_id, days = int(args[0]), int(args[1])
+    async with pool.acquire() as conn:
+        await ensure_user(conn, tg_id)
+        until = await obuna.extend(conn, tg_id, days, "admin", datetime.now(timezone.utc))
+    await message.answer(f"✅ {tg_id} uchun premium {obuna.expires_text(until, settings.tz)} gacha.")
+
+
+async def cmd_obuna_ol(message: Message, command: CommandObject, pool: asyncpg.Pool, settings: Settings) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    arg = (command.args or "").strip()
+    if not arg.isdigit():
+        await message.answer("Foydalanish: /obuna_ol <telegram_id>")
+        return
+    async with pool.acquire() as conn:
+        done = await obuna.revoke(conn, int(arg))
+    await message.answer("Obuna bekor qilindi." if done else "Faol obuna topilmadi.")
+
+
 # --- /kalendar --------------------------------------------------------------------------
 
 
@@ -557,8 +667,8 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
                 return
             if not settings.is_admin(tg_id):
                 used = await questions_today(conn, tg_id, datetime.now(timezone.utc), settings.tz)
-                if used >= effective_limit(user, settings.daily_question_limit):
-                    text = "Bugungi savollar limiti tugadi. Ertaga yana murojaat qiling."
+                if used >= await user_limit(conn, user, settings):
+                    text = "Bugungi savollar limiti tugadi. Ertaga yana murojaat qiling yoki limitni oshiring: /obuna"
                     await log_simple(conn, rid, tg_id, question, "limit_exceeded", text)
                     await message.answer(text)
                     return
@@ -604,6 +714,11 @@ def create_router() -> Router:
     router.message(Command("admin"))(cmd_admin)
     router.message(Command("hisobla"))(cmd_hisobla)
     router.message(Command("kalendar"))(cmd_kalendar)
+    router.message(Command("obuna"))(cmd_obuna)
+    router.message(Command("obuna_ber"))(cmd_obuna_ber)
+    router.message(Command("obuna_ol"))(cmd_obuna_ol)
+    router.message(F.successful_payment)(on_paid)
+    router.pre_checkout_query()(on_pre_checkout)
     router.message(Command("yangiliklar"))(cmd_news)
     router.message(F.text.startswith("/"))(cmd_unknown)
     router.message(Waiting.modda, F.text)(on_modda_number)
@@ -620,5 +735,6 @@ def create_router() -> Router:
     router.callback_query(F.data.startswith("a:"))(on_admin_button)
     router.callback_query(F.data.startswith("h:"))(on_calc_button)
     router.callback_query(F.data.in_({"k:on", "k:off"}))(on_calendar_toggle)
+    router.callback_query(F.data == "o:buy")(on_buy)
     router.errors()(on_error)
     return router

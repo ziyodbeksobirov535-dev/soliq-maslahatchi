@@ -78,6 +78,8 @@ class MembershipChecker:
 
 def _is_exempt(event: TelegramObject) -> bool:
     if isinstance(event, Message):
+        if event.successful_payment is not None:  # to'lov qabul qilinishi hech qachon to'xtatilmaydi
+            return True
         return bool(event.text) and event.text.split(maxsplit=1)[0].split("@")[0] == "/start"
     if isinstance(event, CallbackQuery):
         return event.data == CHECK_CALLBACK

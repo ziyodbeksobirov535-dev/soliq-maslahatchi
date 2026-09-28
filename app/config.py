@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     # Admin tasdiqlagan yangilik/o'zgarish xabarlari shu kanalga ham joylanadi (bo'sh — joylanmaydi).
     # Bot kanalda xabar yozish huquqiga ega admin bo'lishi kerak.
     news_channel: str | None = None
+    # Obuna (premium): kunlik savol limiti; narx (so'm) va muddat (kun). Narx 0 yoki token yo'q — faqat admin beradi.
+    premium_daily_limit: int = Field(default=100, ge=0)
+    premium_price_uzs: int = Field(default=0, ge=0)
+    premium_days: int = Field(default=30, gt=0)
+    # Telegram Payments provider tokeni (@BotFather → Payments → Click yoki Payme).
+    payment_provider_token: SecretStr | None = None
+    # To'lov tokeni bo'lmasa foydalanuvchiga ko'rsatiladigan aloqa (masalan: @admin_username).
+    payment_contact: str | None = None
 
     log_level: str = "INFO"
 
@@ -135,6 +143,7 @@ class Settings(BaseSettings):
             self.anthropic_api_key,
             self.supabase_db_url,
             self.supabase_service_role_key,
+            self.payment_provider_token,
         )
         return [s.get_secret_value() for s in secrets if s is not None]
 

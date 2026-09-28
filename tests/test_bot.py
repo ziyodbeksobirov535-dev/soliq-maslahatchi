@@ -511,3 +511,70 @@ def test_calendar_command_and_toggle(bot_db):
     edit = [r for r in s.requests if type(r).__name__ == "EditMessageText"][0]
     assert "Eslatmalar: yoqilgan" in edit.text
     assert query(bot_db, "SELECT eslatma FROM foydalanuvchilar WHERE telegram_id = 6700")[0][0] is True
+
+
+# --- /obuna -------------------------------------------------------------------------------
+
+
+def paid_cfg(**kw):
+    return settings(premium_price_uzs=49000, payment_provider_token="12345:TEST:token", **kw)
+
+
+def payment_update(user_id, payload, charge, amount=4900000, n=900):
+    from aiogram.types import SuccessfulPayment
+
+    return Update(update_id=n, message=Message(
+        message_id=n, date=datetime.now(timezone.utc), chat=Chat(id=user_id, type="private"),
+        from_user=User(id=user_id, is_bot=False, first_name="Test"),
+        successful_payment=SuccessfulPayment(currency="UZS", total_amount=amount, invoice_payload=payload,
+                                             telegram_payment_charge_id=charge, provider_payment_charge_id="p1")))
+
+
+def test_obuna_free_and_contact(bot_db):
+    text = feed(bot_db, ["/obuna"], user_id=7000, cfg=settings(payment_contact="@soliq_admin")).sent[0].text
+    assert "Bepul tarif — kuniga 20 ta savol" in text and "@soliq_admin" in text
+
+
+def test_obuna_invoice_checkout_and_payment(bot_db):
+    from aiogram.methods import AnswerPreCheckoutQuery, SendInvoice
+    from aiogram.types import PreCheckoutQuery
+
+    s = feed(bot_db, ["/obuna", callback(7100, "o:buy")], user_id=7100, cfg=paid_cfg())
+    assert s.sent[0].reply_markup.inline_keyboard[0][0].text == "💳 Premium — 49 000 so'm / 30 kun"
+    invoice = [r for r in s.requests if isinstance(r, SendInvoice)][0]
+    assert invoice.currency == "UZS" and invoice.prices[0].amount == 4900000 and invoice.payload == "premium:7100:30"
+
+    def checkout(payload, amount, n):
+        return Update(update_id=n, pre_checkout_query=PreCheckoutQuery(
+            id=str(n), from_user=User(id=7100, is_bot=False, first_name="T"), currency="UZS",
+            total_amount=amount, invoice_payload=payload))
+
+    s = feed(bot_db, [checkout("premium:7100:30", 4900000, 1), checkout("premium:9999:30", 4900000, 2),
+                      checkout("premium:7100:30", 100, 3)], user_id=7100, cfg=paid_cfg())
+    answers = [r.ok for r in s.requests if isinstance(r, AnswerPreCheckoutQuery)]
+    assert answers == [True, False, False]
+
+    s = feed(bot_db, [payment_update(7100, "premium:7100:30", "ch-1"), payment_update(7100, "premium:7100:30", "ch-1", n=901)],
+             user_id=7100, cfg=paid_cfg())
+    assert "To'lov qabul qilindi" in s.sent[0].text
+    assert len(query(bot_db, "SELECT 1 FROM tolovlar WHERE telegram_id = 7100")) == 1  # takror hisoblanmadi
+    text = feed(bot_db, ["/obuna"], user_id=7100, cfg=paid_cfg()).sent[0].text
+    assert "Premium —" in text and "kuniga 100 ta savol" in text
+
+
+def test_admin_grants_and_revokes_premium_and_limit_follows(bot_db):
+    cfg = settings(daily_question_limit=1)
+    assert "faqat adminlar" in feed(bot_db, ["/obuna_ber 7200 30"], user_id=USER, cfg=cfg).sent[0].text
+    s = feed(bot_db, ["/obuna_ber 7200 30"], user_id=ADMIN, cfg=cfg)
+    assert "7200 uchun premium" in s.sent[0].text
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Jarima qanday hisoblanadi?"], user_id=7200, cfg=cfg)
+    assert not any("limiti tugadi" in m.text for m in s.sent)  # premium: 100 ta
+    feed(bot_db, ["/obuna_ol 7200"], user_id=ADMIN, cfg=cfg)
+    s = feed(bot_db, ["QQS stavkasi qancha?"], user_id=7200, cfg=cfg)
+    assert "limiti tugadi" in s.sent[0].text and "/obuna" in s.sent[0].text
+
+
+def test_payment_is_not_blocked_by_channel_gate(bot_db):
+    s = feed(bot_db, [payment_update(7300, "premium:7300:30", "ch-gate", n=950)], user_id=7300,
+             cfg=paid_cfg(required_channel="@soliq_kanal"))
+    assert "To'lov qabul qilindi" in s.sent[0].text

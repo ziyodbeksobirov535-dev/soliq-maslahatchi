@@ -24,6 +24,7 @@ COMMANDS = [
     BotCommand(command="kalendar", description="Soliq kalendari va eslatmalar"),
     BotCommand(command="profil", description="Profil va kunlik limit"),
     BotCommand(command="yangiliklar", description="Qonunchilik yangiliklari"),
+    BotCommand(command="obuna", description="Tarif va kunlik limit"),
 ]
 
 

@@ -21,3 +21,20 @@ CREATE TABLE eslatmalar_yuborilgan (
     PRIMARY KEY (telegram_id, kalit, muddat, qolgan_kun)
 );
 ALTER TABLE eslatmalar_yuborilgan ENABLE ROW LEVEL SECURITY;
+
+-- Obuna: `obunalar` (001) — har foydalanuvchiga bitta qator; tarif va amal qilish muddati qo'shiladi.
+ALTER TABLE obunalar ADD COLUMN tarif text NOT NULL DEFAULT 'premium' CHECK (tarif IN ('premium'));
+ALTER TABLE obunalar ADD COLUMN tugash_at timestamptz;
+ALTER TABLE obunalar ADD COLUMN manba text CHECK (manba IN ('admin', 'telegram'));
+
+CREATE TABLE tolovlar (
+    id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    telegram_id         bigint      NOT NULL,
+    summa               bigint      NOT NULL CHECK (summa > 0),   -- eng kichik birlikda (tiyin)
+    valyuta             text        NOT NULL,
+    kun                 integer     NOT NULL CHECK (kun > 0),
+    telegram_charge_id  text        NOT NULL UNIQUE,              -- takroriy xabar ikki marta hisoblanmaydi
+    provider_charge_id  text,
+    created_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE tolovlar ENABLE ROW LEVEL SECURITY;
