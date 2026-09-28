@@ -375,3 +375,19 @@ def test_approved_message_is_posted_to_channel_once(xdb):
     assert len(posts) == 1 and kanal_id is not None
     urls = [b.url for row in posts[0][2].inline_keyboard for b in row]
     assert urls == [NEWS["url"], "https://t.me/soliqexpertibot"]
+
+
+def test_admin_can_reshow_pending_preview(xdb):
+    xid = prepared(xdb)
+    bot = FakeBot()
+
+    async def go(pool):
+        await xabarlar.notify_admins(bot, pool, settings())
+        shown = await xabarlar.show_preview(bot, pool, settings(), xid, ADMIN)
+        await xabarlar.decide(bot, pool, settings(day=False), xid, ADMIN, approve=False)
+        again = await xabarlar.show_preview(bot, pool, settings(), xid, ADMIN)
+        return shown, again
+
+    shown, again = with_pool(xdb, go)
+    assert (shown, again) == (True, False)
+    assert len([e for e in bot.edits if buttons(e[2])[-1] == "❌ Bekor qilindi"]) == 2  # ikkala ko'rinish yangilandi

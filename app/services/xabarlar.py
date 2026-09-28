@@ -320,6 +320,27 @@ async def recipient_count(conn: asyncpg.Connection) -> int:
     return await conn.fetchval("SELECT count(*) FROM foydalanuvchilar WHERE active AND NOT bloklagan")
 
 
+def preview_header(x, n: int, settings: Settings) -> str:
+    turi = "yangilik" if x["turi"] == "yangilik" else "o'zgarish"
+    kanal = f" + {esc(settings.news_channel)} kanali" if settings.news_channel else ""
+    return f"🆕 <b>Tasdiq kutilmoqda</b> · {turi} · {n} ta foydalanuvchiga{kanal}\n\n"
+
+
+async def show_preview(bot: Bot, pool: asyncpg.Pool, settings: Settings, xabar_id: int, chat_id: int) -> bool:
+    """/admin → xabarni qayta ko'rsatish (tasdiq tugmalari bilan); ko'rinish holat yangilanishiga qo'shiladi."""
+    async with pool.acquire() as conn:
+        x = await conn.fetchrow("SELECT * FROM xabarlar WHERE id = $1 AND holat = 'kutilmoqda'", xabar_id)
+        if x is None:
+            return False
+        n = await recipient_count(conn)
+    m = await bot.send_message(chat_id, preview_header(x, n, settings) + x["matn"], parse_mode=ParseMode.HTML,
+                               link_preview_options=NO_PREVIEW, reply_markup=admin_keyboard(x))
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE xabarlar SET admin_xabarlar = admin_xabarlar || $2::jsonb WHERE id = $1",
+                           xabar_id, json.dumps([[chat_id, m.message_id]]))
+    return True
+
+
 async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int:
     """Adminlarga hali ko'rsatilmagan 'kutilmoqda' xabarlar ko'rinishini yuboradi."""
     if not settings.admin_telegram_ids:
@@ -331,9 +352,7 @@ async def notify_admins(bot: Bot, pool: asyncpg.Pool, settings: Settings) -> int
         n = await recipient_count(conn)
     shown = 0
     for x in pending:
-        turi = "yangilik" if x["turi"] == "yangilik" else "o'zgarish"
-        kanal = f" + {esc(settings.news_channel)} kanali" if settings.news_channel else ""
-        header = f"🆕 <b>Tasdiq kutilmoqda</b> · {turi} · {n} ta foydalanuvchiga{kanal}\n\n"
+        header = preview_header(x, n, settings)
         sent: list[list[int]] = []
         for admin_id in sorted(settings.admin_telegram_ids):
             try:

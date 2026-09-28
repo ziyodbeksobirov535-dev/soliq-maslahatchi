@@ -28,6 +28,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, ErrorEvent, InlineKeyboardMarkup, LinkPreviewOptions, Message
 
 from app.ai.client import LLM
+from app.bot.admin import admin_menu, negative_ratings, news_overview, unanswered
 from app.bot.formatting import esc, format_article, format_final_answer, format_news, split_message
 from app.bot.keyboards import (
     PROFILE_BUTTON_TITLES,
@@ -43,7 +44,7 @@ from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import is_followup, normalize
 from app.services.answer import answer_question, answer_without_llm
-from app.services.xabarlar import decide
+from app.services.xabarlar import decide, show_preview
 from app.services.users import (
     PROFILE_FIELDS,
     collect_stats,
@@ -326,12 +327,8 @@ async def on_xabar_decision(query: CallbackQuery, pool: asyncpg.Pool, settings: 
 # --- /stat, /yangiliklar ----------------------------------------------------------------
 
 
-async def cmd_stat(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
-    if not settings.is_admin(message.from_user.id):
-        await message.answer("Bu buyruq faqat adminlar uchun.")
-        return
-    async with pool.acquire() as conn:
-        s = await collect_stats(conn, datetime.now(timezone.utc), settings.tz)
+async def stats_text(conn: asyncpg.Connection, settings: Settings) -> str:
+    s = await collect_stats(conn, datetime.now(timezone.utc), settings.tz)
     lines = [
         "<b>Statistika</b>",
         f"Foydalanuvchilar: {s.users} (bugun faol: {s.active_today})",
@@ -342,7 +339,51 @@ async def cmd_stat(message: Message, pool: asyncpg.Pool, settings: Settings) -> 
         "",
         "<b>Hujjatlar</b>",
     ] + [f"• {esc(name)} ({esc(status)}): {n} element" for _, name, status, n in s.documents]
-    await message.answer("\n".join(lines), parse_mode=ParseMode.HTML)
+    return "\n".join(lines)
+
+
+async def cmd_stat(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    async with pool.acquire() as conn:
+        text = await stats_text(conn, settings)
+    await send_long(message, text)
+
+
+async def cmd_admin(message: Message, settings: Settings) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    await message.answer("<b>Admin paneli</b> — bo'limni tanlang:", parse_mode=ParseMode.HTML,
+                         reply_markup=admin_menu())
+
+
+async def on_admin_button(query: CallbackQuery, pool: asyncpg.Pool, settings: Settings) -> None:
+    if not settings.is_admin(query.from_user.id):
+        await query.answer("Faqat adminlar uchun", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    section = parts[1] if len(parts) > 1 else ""
+    markup = None
+    if section == "show" and len(parts) == 3 and parts[2].isdigit():
+        ok = await show_preview(query.bot, pool, settings, int(parts[2]), query.from_user.id)
+        await query.answer(None if ok else "Bu xabar allaqachon hal qilingan")
+        return
+    async with pool.acquire() as conn:
+        if section == "neg":
+            text = await negative_ratings(conn, settings.tz)
+        elif section == "miss":
+            text = await unanswered(conn, settings.tz)
+        elif section == "news":
+            text, markup = await news_overview(conn)
+        elif section == "stat":
+            text = await stats_text(conn, settings)
+        else:
+            await query.answer()
+            return
+    await query.answer()
+    await send_long(query.message, text, markup)
 
 
 async def cmd_news(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
@@ -424,6 +465,7 @@ def create_router() -> Router:
     router.message(Command("profil"))(cmd_profil)
     router.message(Command("modda"))(cmd_modda)
     router.message(Command("stat"))(cmd_stat)
+    router.message(Command("admin"))(cmd_admin)
     router.message(Command("yangiliklar"))(cmd_news)
     router.message(F.text.startswith("/"))(cmd_unknown)
     router.message(Waiting.modda, F.text)(on_modda_number)
@@ -434,5 +476,6 @@ def create_router() -> Router:
     router.callback_query(F.data.startswith("p:"))(on_profile_button)
     router.callback_query(F.data.startswith("x:"))(on_xabar_decision)
     router.callback_query(F.data == CHECK_CALLBACK)(on_subscription_check)
+    router.callback_query(F.data.startswith("a:"))(on_admin_button)
     router.errors()(on_error)
     return router

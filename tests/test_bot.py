@@ -430,3 +430,29 @@ def test_followup_question_uses_previous_question(bot_db):
 def test_standalone_question_is_not_linked(bot_db):
     s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Jarima qanday hisoblanadi?"], user_id=6150, llm=None)
     assert "Oldingi savolingiz" not in s.sent[1].text
+
+
+# --- /admin paneli -------------------------------------------------------------------------
+
+
+def test_admin_panel_is_admin_only(bot_db):
+    assert "faqat adminlar" in feed(bot_db, ["/admin"], user_id=USER).sent[0].text
+    s = feed(bot_db, ["/admin"], user_id=ADMIN)
+    data = [b.callback_data for row in s.sent[0].reply_markup.inline_keyboard for b in row]
+    assert data == ["a:neg", "a:miss", "a:news", "a:stat"]
+    s = feed(bot_db, [callback(USER, "a:neg")], user_id=USER)
+    assert not s.sent  # oddiy foydalanuvchi — faqat ogohlantirish
+
+
+def test_admin_negative_and_unanswered_lists(bot_db):
+    feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "qwzx yyyy"], user_id=6200, llm=None)
+    rid = query(bot_db, "SELECT request_id FROM suhbatlar WHERE telegram_id = 6200 AND status = 'sources_only'")[0][0]
+    feed(bot_db, [callback(6200, f"r:{rid}:-1")], user_id=6200)
+    neg = feed(bot_db, [callback(ADMIN, "a:neg")], user_id=ADMIN).sent[0].text
+    assert "👎 Salbiy baholar" in neg and "Soliq imtiyozlari shartlari qanday?" in neg
+    miss = feed(bot_db, [callback(ADMIN, "a:miss")], user_id=ADMIN).sent[0].text
+    assert "❓ Javobsiz savollar" in miss and "qwzx yyyy" in miss and "not_found" in miss
+    news = feed(bot_db, [callback(ADMIN, "a:news")], user_id=ADMIN).sent[0].text
+    assert "tasdiq kutmoqda: 0" in news
+    stat = feed(bot_db, [callback(ADMIN, "a:stat")], user_id=ADMIN).sent[0].text
+    assert "<b>Statistika</b>" in stat
