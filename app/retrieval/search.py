@@ -10,23 +10,35 @@ Qat'iy qoidalar:
   versiya matni bazada bo'lmasa — `historical_unavailable` (keyingi bosqichda Lex.uz'dan
   `lexuz.load(on_date=...)` bilan olinadi);
 - faqat `amalda` holatdagi hujjatlar qidiriladi (kelajakdagi/kuchini yo'qotganlar emas);
-- havolalar faqat bazadan (parser Lex.uz ID'sidan qurgan) — hech narsa o'ylab topilmaydi.
+- havolalar faqat bazadan (parser Lex.uz ID'sidan qurgan) — hech narsa o'ylab topilmaydi;
+- huquqiy ierarxiya (2026-10-12, 466 hujjatli bazada o'lchangan): kodeks/qonun natijasi o'zgarmaydi; farmon,
+  qaror va boshqa hujjat natijasi — hujjat nomi yoki bo'lim sarlavhasi savol so'zlarining kamida yarmini
+  qamrasa ×1.2 (savol aynan shu hujjat haqida), aks holda ×0.5 (katta ilovalar kodeks moddasini surib
+  chiqarmasin). Kodeks savollari top-1 5→6/10, top-6 9→10/10; qaror savollari top-1 6→7/7.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 import asyncpg
 
 from app.retrieval.articles import SOLIQ_KODEKSI_LEX_ID, Article, get_article
-from app.retrieval.query import QueryPlan, analyze
+from app.retrieval.query import QueryPlan, analyze, normalize
 from app.retrieval.spelling import apply_fixes, suggest
 
 DEFAULT_LIMIT = 6
+# Ierarxiya bo'yicha qayta tartiblash: SQL'dan ko'proq nomzod olinadi, og'irlikdan keyin `limit` tasi qoladi.
+RERANK_CANDIDATES = 24
+HIGH_LEVEL_TYPES = frozenset({"Кодекс", "Закон", "Kodeks", "Qonun"})
+ON_TOPIC_WEIGHT = 1.2
+OFF_TOPIC_WEIGHT = 0.5
+MIN_TOPIC_COVERAGE = 0.5
+_WORDS_RE = re.compile(r"[a-z0-9]+")
 # Modda savoldagi mazmunli so'zlarning kamida shuncha ulushini qamrashi kerak (aks holda tasodifiy moslik).
 MIN_COVERAGE = 0.5
 
@@ -91,7 +103,7 @@ async def search_articles(
         plan.trigram_text or None,
         plan.lex_ids,
         list(statuses),
-        limit,
+        max(limit, RERANK_CANDIDATES),
         plan.ts_weights,
     )
     hits = []
@@ -116,7 +128,36 @@ async def search_articles(
                 birlik_nomi=r["birlik_nomi"],
             )
         )
-    return hits
+    return await rerank_by_hierarchy(conn, plan, hits, limit)
+
+
+def topic_coverage(plan: QueryPlan, text: str) -> float:
+    """Savol so'zlarining (fe'l oilasi bilan) qancha qismi matndagi so'z boshida uchraydi."""
+    words = set(_WORDS_RE.findall(normalize(text or "")))
+    terms = [[t, *plan.variants.get(t, [])] for t in plan.terms]
+    if not terms or not words:
+        return 0.0
+    return sum(any(w.startswith(f) for f in forms for w in words) for forms in terms) / len(terms)
+
+
+def hierarchy_weight(plan: QueryPlan, hit: ArticleHit, doc_type: str | None, doc_name: str | None) -> float:
+    if doc_type in HIGH_LEVEL_TYPES:
+        return 1.0
+    unit_title = hit.birlik_nomi or hit.heading
+    on_topic = max(topic_coverage(plan, doc_name or hit.document_name), topic_coverage(plan, unit_title))
+    return ON_TOPIC_WEIGHT if on_topic >= MIN_TOPIC_COVERAGE else OFF_TOPIC_WEIGHT
+
+
+async def rerank_by_hierarchy(conn: asyncpg.Connection, plan: QueryPlan, hits: list[ArticleHit],
+                              limit: int) -> list[ArticleHit]:
+    if not hits:
+        return hits
+    rows = await conn.fetch("SELECT lex_id, type, name FROM hujjatlar WHERE lex_id = ANY($1::text[])",
+                            list({h.lex_id for h in hits}))
+    docs = {r["lex_id"]: (r["type"], r["name"]) for r in rows}
+    weighted = [(h.score * hierarchy_weight(plan, h, *docs.get(h.lex_id, (None, None))), h) for h in hits]
+    weighted.sort(key=lambda x: x[0], reverse=True)
+    return [replace(h, score=score) for score, h in weighted[:limit]]
 
 
 async def retrieve(conn: asyncpg.Connection, question: str, today: date, *, limit: int = DEFAULT_LIMIT) -> SearchResult:

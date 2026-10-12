@@ -479,3 +479,14 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
       ulanishda TLS timeout (vaqtinchalik tarmoq) — hech narsa yozilmadi; qayta urinish: 321/321 import, xato 0, ~27 daqiqa.
       Supabase: **466 hujjat, 75 455 element, 179 MB**; navbat bo'sh, lug'at 42 428 so'z. Kunlik import endi faqat
       shanba kungi discovery topgan yangi hujjatlarni oladi.
+
+### Qidiruv: huquqiy ierarxiya (2026-10-12)
+- Muammo (sinovda topildi): 466 hujjatli bazada "QQS stavkasi qancha?" → 258-modda 8-o'rinda; yuqorida qarorlarning
+  katta ilovalari (ko'p so'z mosligi). Bir xil og'irlik bilan barcha qarorlarni pasaytirish qaror savollarini buzdi
+  (top-1 6/7 → 1/7) — rad etildi.
+- Yechim (`search.rerank_by_hierarchy`): SQL'dan 24 nomzod; kodeks/qonun ×1.0; boshqa hujjat — nomi yoki bo'lim
+  sarlavhasi savol so'zlarining ≥50% ini qamrasa ×1.2, aks holda ×0.5. Supabase'da o'lchov: kodeks savollari
+  (spec 10 + 2) top-1 5→6, top-3 7→8, top-6 9→10; qaror savollari (7 ta) top-1 6→7/7. "QQS stavkasi" → 258-modda 1-o'rin.
+- `scripts/sinov_javob.py` — API kalitsiz savol-javob sinovi (bot qidiruvi va iqtibos tekshiruvi, javobni tashqi model yozadi).
+- Testlar: 430 passed.
+- Kuzatuv: Mac'dan Supabase pooler'ga ulanishda vaqti-vaqti bilan TLS timeout (qayta urinishda ulanadi).

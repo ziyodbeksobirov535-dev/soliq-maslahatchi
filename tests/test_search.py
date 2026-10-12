@@ -324,3 +324,81 @@ def test_injection_question_does_not_break_search(sk_db):
 ])
 def test_followup_detection(question, expected):
     assert is_followup(question, TODAY) is expected
+
+
+# --- huquqiy ierarxiya (DB'siz) ---------------------------------------------------------------
+
+
+def _hit(lex_id="-1", heading="1-ilova", birlik_nomi=None, modda=None, score=1.0, name="Hujjat"):
+    from app.retrieval.search import ArticleHit
+
+    return ArticleHit(lex_id=lex_id, document_name=name, document_status="amalda", modda_raqami=modda,
+                      heading=heading, heading_element_id="-2", heading_link="https://lex.uz/docs/-1#-2",
+                      score=score, matched_terms=2, matched=[], birlik="-2" if modda is None else None,
+                      birlik_nomi=birlik_nomi)
+
+
+def test_topic_coverage_uses_word_starts_and_verb_family():
+    from app.retrieval.search import topic_coverage
+
+    plan = analyze("Yuk tashuvchilarga subsidiya", TODAY)
+    assert topic_coverage(plan, "Yuk tashish xizmatlariga subsidiya ajratish tartibi") == 1.0
+    assert topic_coverage(plan, "Soliq xavfini boshqarish") == 0.0
+
+
+def test_hierarchy_weight():
+    from app.retrieval.search import OFF_TOPIC_WEIGHT, ON_TOPIC_WEIGHT, hierarchy_weight
+
+    plan = analyze("QQS stavkasi qancha?", TODAY)
+    assert hierarchy_weight(plan, _hit(modda="258"), "Кодекс", "Soliq kodeksi") == 1.0
+    assert hierarchy_weight(plan, _hit(heading="3-ilova (davomi)"), "Постановление",
+                            "Soliq xavfini boshqarish to'g'risida") == OFF_TOPIC_WEIGHT
+    plan = analyze("Dori vositalarini realizatsiya qilishda hisobvaraq-faktura", TODAY)
+    assert hierarchy_weight(plan, _hit(birlik_nomi="2-ilova, 3-bob. Dori vositalarini realizatsiya qilishda "
+                                                   "hisobvaraq-fakturalarni to'ldirish"), "Постановление",
+                            "Qo'shilgan qiymat solig'i hisobvaraq-fakturalari") == ON_TOPIC_WEIGHT
+
+
+def test_rerank_puts_code_article_above_off_topic_annex(sk_db):
+    """Real o'lchov (2026-10-12, 466 hujjat): "QQS stavkasi" — mavzusiz ilova 2.72, 258-modda 1.59 → modda yuqorida;
+    nomi savolga mos qaror esa ko'tariladi."""
+    from app.collector.importer import import_document as imp
+    from app.retrieval.search import rerank_by_hierarchy
+    from tests.test_sections import element as el
+
+    annex, decree = "-9900050", "-9900051"
+    docs = [
+        lexuz_document(annex, "Soliq xavfini boshqarish tizimini tasdiqlash to'g'risida",
+                       [el(annex, 1, "text", "1. Ko'rsatkichlar.")]),
+        lexuz_document(decree, "QQS stavkalarini qo'llash tartibi to'g'risida",
+                       [el(decree, 1, "text", "1. Tartib.")]),
+    ]
+    plan = analyze("QQS stavkasi qancha?", TODAY)
+    hits = [_hit(annex, "3-ilova (davomi)", "3-ilova (davomi)", score=2.72),
+            _hit(SK, "258-modda. Soliq stavkalari", modda="258", score=1.59),
+            _hit(decree, "1-bob", "1-bob. Umumiy qoidalar", score=1.4)]
+
+    async def go():
+        conn = await connect(sk_db)
+        try:
+            for d in docs:
+                await import_document(conn, d, None, TODAY)
+            await conn.execute("UPDATE hujjatlar SET type = 'Постановление' WHERE lex_id = ANY($1::text[])",
+                               [annex, decree])
+            await conn.execute("UPDATE hujjatlar SET type = 'Кодекс' WHERE lex_id = $1", SK)
+            return await rerank_by_hierarchy(conn, plan, hits, 3)
+        finally:
+            await conn.execute("DELETE FROM hujjatlar WHERE lex_id = ANY($1::text[])", [annex, decree])
+            await conn.close()
+
+    ranked = run(go())
+    assert [h.lex_id for h in ranked] == [decree, SK, annex]
+    assert [round(h.score, 2) for h in ranked] == [1.68, 1.59, 1.36]
+
+
+def lexuz_document(doc_id, name, elements):
+    import lexuz
+
+    return lexuz.Document(doc_id=doc_id, url=lexuz.doc_url(doc_id), title=name, name=name, number=None,
+                          adoption_date=None, effective_date=None, header_label=None, version=None, versions=[],
+                          elements=elements)
