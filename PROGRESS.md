@@ -467,3 +467,11 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - [x] Bekor qilingan 3 ta xabar yozuvi o'chirildi (foydalanuvchi ruxsati bilan) — kredit qo'shilgach AI bilan
       qayta tayyorlanadi (hozir 7 kunlik oraliqda 2 ta yangilik).
 - [ ] Anthropic krediti (console.anthropic.com → Billing) va yangi API kalit `.env` ga — foydalanuvchi.
+
+## 2026-10-12 — Supabase pauzadan tiklandi, bot noutbukda (test davri)
+- Bot 29.09 00:21 dan o'chiq edi (Mac uxlagan/o'chgan) → Supabase Free 7 kun faolliksiz — `INACTIVE` (pauza).
+  Foydalanuvchi ruxsati bilan `restore_project`; ~4 daqiqada ulandi, ma'lumotlar va 001–012 joyida.
+- Bot qayta ishga tushirildi (17:41). Qo'lda: RSS — 90 element, 15 relevant import, xato 0; import-found — 50 import,
+  xato 0. Supabase: 145 hujjat, 38 918 element, 119 MB; navbatda 321; 7 kunlik relevant yangilik 8 ta (AI kutmoqda).
+- Foydalanuvchi qarori: test davrida bot noutbukda; test yaxshi o'tsa — serverga (docs/DEPLOYMENT.md).
+  Eslatma: Mac 7+ kun o'chiq/uyquda qolsa Supabase yana pauzaga tushadi.
