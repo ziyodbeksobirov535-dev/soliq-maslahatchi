@@ -475,3 +475,7 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
   xato 0. Supabase: 145 hujjat, 38 918 element, 119 MB; navbatda 321; 7 kunlik relevant yangilik 8 ta (AI kutmoqda).
 - Foydalanuvchi qarori: test davrida bot noutbukda; test yaxshi o'tsa — serverga (docs/DEPLOYMENT.md).
   Eslatma: Mac 7+ kun o'chiq/uyquda qolsa Supabase yana pauzaga tushadi.
+- [x] Foydalanuvchi so'rovi: navbatdagi hamma hujjat bir yo'la (`import-found --limit 400`). Birinchi urinish Supabase'ga
+      ulanishda TLS timeout (vaqtinchalik tarmoq) — hech narsa yozilmadi; qayta urinish: 321/321 import, xato 0, ~27 daqiqa.
+      Supabase: **466 hujjat, 75 455 element, 179 MB**; navbat bo'sh, lug'at 42 428 so'z. Kunlik import endi faqat
+      shanba kungi discovery topgan yangi hujjatlarni oladi.
