@@ -501,3 +501,17 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - [x] needs_more raundi: o'rinlar so'rovlar o'rtasida navbat bilan (`answer.pick_new_hits`) — avval birinchi so'rov
       3 o'rinni egallab, "foyda solig'i stavkalari" bo'yicha 337-modda kirmasdi.
 - Regressiya yo'q: kodeks savollari top-1/3/6 = 6/8/10, qaror savollari 7/7/7. Testlar: 433 passed.
+
+### Skill (soliq-maslahatchi v1) usullari botga (2026-10-13)
+Foydalanuvchi skill arxivini berdi: 32 ma'lumot fayli `skill-bilimlar/` bilan bayt-baybayt bir xil (PHASE 0 da
+ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) bajarilmagan edi — `bilimlar` bo'sh.
+- [x] 1. Havolalar zanjiri (`app/retrieval/references.py`): kontekstdagi moddada "ushbu Kodeksning N-moddasi",
+      "Soliq kodeksining N-moddasi" bo'lsa — o'sha modda ham (≤2). Shakllar real matndan; 337 → 57.
+- [x] 2. Rasmiy imtiyozlar ro'yxati: `migrations/013_bilimlar_imtiyozlar.sql` (Supabase'ga qo'llandi, checksum
+      `4fec3319…`), `app/collector/bilimlar.py` — 507 band (kirill → lotin, asli saqlanadi), 322 tasi moddaga
+      bog'langan; `app/retrieval/imtiyozlar.py` — imtiyoz savolida mos bandlar (muddati o'tmagan) ko'rsatgan
+      moddalar kontekstga (≤3), AI'siz rejimda ham (≤2). Ro'yxat manba emas — manba Lex.uz moddasi.
+      Sinov: "Qishloq xo'jaligi uchun qanday soliq imtiyozlari bor?" → 337 (foyda 0%) va 414 ham qo'shildi.
+- [ ] 3. Mavzu indeksi (kodeks-tuzilishi, maxsus-qism-indeksi) → mavzu bo'yicha nomzod moddalar.
+- [ ] 4. Bilimlar (bilimlar-bazasi, muddatlar, jarimalar, norezident) → bilimlar, turi='bilim'.
+- Testlar: 456 passed.
