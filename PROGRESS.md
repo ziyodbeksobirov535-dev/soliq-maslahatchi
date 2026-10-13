@@ -620,3 +620,20 @@ tuzatish, savolni aniq tushunish ("aborot" ni "axborot" deb tushunish kabi xatol
 - Ochiq: AI'siz rejimda (API mablag'i yo'q) ko'p masalali savollarda ba'zi aniq moddalar faqat AI so'rovlari
   orqali keladi (YaTT savolida 467, dividend savolida 381).
 
+### Qolgan 6 savol birinchi o'ringa (2026-10-13)
+- Kodeks moddasi uchun yangi signallar (`search.hierarchy_weight`): sarlavha savolning hamma so'zini qamraydi
+  (+0.3: "bayram kunlari uchun haq to'lash" → 263); sarlavha bilan solishtirishda umumiy so'zlar ham ("tartibi":
+  "Bojxona to'lovlarini to'lash tartibi" → 328); uzun savolda (≥6 so'z) bitta qisqa band savolning ≥75% ini
+  qamraydi (+0.5: ta'til kompensatsiyasi → 234; qisqa savolda farqlamaydi va 75 o'rniga 483 berardi); "kim"
+  savolida sarlavhada rol (+0.3: "subyektlari"). "Qo'shimcha haq/ustama" → "haq to'lash".
+- Belgilar aniqlashtirildi (matn o'qib): "O'zaro bog'liq shaxslar" — SK 37 va BK 307 ikkalasi ta'rif;
+  "Buxgalteriya hisobini kim yuritadi" — 6 (subyektlar), 11, 12; ta'til kompensatsiyasi — 234 (1-qism) va 235.
+- Natija: 1-to'plam 67/71/73, 2-to'plam 45/51/51, 3-to'plam 31/31/31. Yo'qotish: "Ish beruvchi xodimni ishdan
+  bo'shatishdan oldin qancha muddat oldin ogohlantiradi?" — 165 6-o'rindan 7-ga (160 — xodim tashabbusi, so'zlari
+  bir xil, yo'nalishi teskari; leksik qidiruv farqlamaydi).
+- Testlar: 505 passed.
+- **Topilgan xavf:** o'lchovlar oxirida Supabase'da oddiy qidiruv ham 2 daqiqalik statement_timeout'ga tushdi
+  (indeksli bitta so'rov 9 s, hammasi xotirada) — kichik serverning CPU krediti tugagan. Sabab — `search_articles`
+  har chaqiruvda `corpus` CTE'ni (≈75 ming element, tsvector bilan) to'liq materializatsiya qiladi va har so'z
+  IDF'i uchun uni qayta ko'radi; GIN indeks deyarli ishlatilmaydi. Yechim — migratsiya 014 (pastda).
+

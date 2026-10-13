@@ -203,7 +203,8 @@ UCHINCHI: dict[str, list[tuple[str, set[tuple[str, str]]]]] = {
         ("Umidsiz qarzlarni xarajatga o'tkazish mumkinmi?", sk("313")),
         ("Kurs farqidan soliq", sk("320")),
         ("Doimiy muassasa nima?", sk("36")),
-        ("O'zaro bog'liq shaxslar kimlar?", sk("37")),
+        # savolda soha yo'q — Soliq kodeksi 37 va Bojxona kodeksi 307 ("O'zaro bog'liq shaxslar") ikkalasi ta'rif
+        ("O'zaro bog'liq shaxslar kimlar?", sk("37") | {(BK, "307")}),
         ("Soliq to'lovchining shaxsiy kabineti", sk("56")),
         ("QQS bo'yicha soliq bazasi qanday aniqlanadi?", sk("247", "248")),
         ("Mol-mulk solig'ini korxona qachon to'laydi?", sk("417")),
@@ -218,12 +219,14 @@ UCHINCHI: dict[str, list[tuple[str, set[tuple[str, str]]]]] = {
         ("Xizmat safari xarajatlari kompensatsiyasi", {(MK, "287")}),
         ("Xodimni intizomiy javobgarlikka tortish", {(MK, "300"), (MK, "301")}),
         ("O'rindoshlik asosida ishlaganda ta'til", {(MK, "439")}),
-        ("Ishdan bo'shatilganda foydalanilmagan ta'til uchun kompensatsiya", {(MK, "235")}),
+        # 234 birinchi qismi: shartnoma bekor qilinganda foydalanilmagan ta'tillar uchun pulli kompensatsiya
+        ("Ishdan bo'shatilganda foydalanilmagan ta'til uchun kompensatsiya", {(MK, "234"), (MK, "235")}),
         ("Mehnat daftarchasini berish", {(MK, "171")}),
     ],
     "Buxgalteriya, bojxona (3)": [
         ("Moliyaviy hisobotni e'lon qilish", {(BX, "26")}),
-        ("Buxgalteriya hisobini kim yuritadi?", {(BX, "11"), (BX, "12")}),
+        # kim yuritishi shart — 6 (subyektlar); kim amalda yuritadi — 11 (rahbar, buxgalter, tashkilot), 12
+        ("Buxgalteriya hisobini kim yuritadi?", {(BX, "6"), (BX, "11"), (BX, "12")}),
         ("Ichki nazorat", {(BX, "21")}),
         ("Bojxona to'lovlarini to'lash tartibi", {(BK, "328")}),
         ("Reeksport bojxona rejimi", {(BK, "32")}),

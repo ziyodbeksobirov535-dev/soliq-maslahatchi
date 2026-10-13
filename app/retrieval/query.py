@@ -210,6 +210,8 @@ COLLOQUIAL: tuple[tuple[re.Pattern[str], str], ...] = tuple((re.compile(p), r) f
     (r"\b(necha|qancha) kun\w*(?! eng kam davomiyligi)", r"\g<0> davomiyligi"),
     # kech to'lash — penya; hisobotni kech topshirish — hisobot tartibini buzish
     (r"\b(kech|oz vaqtida|muddatida) tola\w*|\bkechiktirib tola\w*", r"\g<0> penya"),
+    # "qo'shimcha haq", "ustama" — qonunda "haq to'lash" ("Tungi vaqtdagi mehnat uchun haq to'lash")
+    (r"\b(qoshimcha haq|ustama)\w*", "haq tolash"),
     (r"\bkech topshir\w*|\boz vaqtida topshirma\w*", r"\g<0> soliq hisobotini taqdim etish tartibini buzish"),
 ))
 # To'liq yozilgan soliq nomi → qisqartma ("qo'shilgan qiymat solig'i stavkasi" = "QQS stavkasi"): qisqartma o'zi
@@ -331,6 +333,7 @@ class QueryPlan:
     normalized: str
     terms: list[str] = field(default_factory=list)  # o'zaklar (stop-so'zlarsiz)
     words: dict[str, str] = field(default_factory=dict)  # o'zak → savoldagi so'z (imlo tuzatish uchun)
+    generic_stems: list[str] = field(default_factory=list)  # umumiy so'zlar o'zagi ("tartib") — sarlavha uchun
     language: str = "uz"  # "ru" — ruscha savol, atamalar lug'at bo'yicha o'zbekchaga o'tkazilgan
     bigrams: list[tuple[str, str]] = field(default_factory=list)  # yonma-yon so'zlar: "mehnat shartnoma"
     phrases: list[list[str]] = field(default_factory=list)  # sinonim iboralari (o'zaklar)
@@ -461,6 +464,8 @@ def analyze(question: str, today: date) -> QueryPlan:
     words = [w for w in _WORD_RE.findall(norm) if not w.isdigit()]
     content = [w for w in words if w not in STOPWORDS and len(w) >= 2]
     meaningful = [w for w in content if w not in GENERIC and not re.fullmatch(r"(yil|modda)\w*", w)]
+    # Sarlavha bilan solishtirish uchun umumiy so'zlar ham ("Bojxona to'lovlarini to'lash tartibi" — "tartibi")
+    plan.generic_stems = [stem(w) for w in content if w in GENERIC and not re.fullmatch(r"(yil|modda)\w*", w)]
     # Hujjat nomidagi so'zlar mazmun emas, faqat filtr.
     if plan.lex_ids:
         meaningful = [w for w in meaningful if w not in {"kodeksi", "kodeks", "kodeksning", "soliq", "mehnat",

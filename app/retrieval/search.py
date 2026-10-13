@@ -42,6 +42,15 @@ MIN_TOPIC_COVERAGE = 0.5
 # Kodeks/qonun moddasi: sarlavhasi savolga qanchalik aniq mos (heading_precision) — shuncha bonus. "Soliq agenti kim?"
 # → "23-modda. Soliq agentlari" 6-o'rindan, "Penya" — 5-o'rindan (2026-10-13 sohalar sinovi).
 CODE_HEADING_BONUS = 0.3
+# Sarlavha savolning hamma so'zini qamraydi (263: bayram kunlari uchun haq to'lash); bitta qisqa band savolning
+# ≥75% so'zini qamraydi (234: "Mehnat shartnomasi bekor qilinganda ... foydalanilmagan ... ta'tillari uchun pulli
+# kompensatsiya"); "kim" savolida sarlavhada shaxs/rol ("subyektlari", "rahbari", "to'lovchilar").
+CODE_COVERAGE_BONUS = 0.3
+# Faqat uzun savolda (≥6 so'z): qisqa savolda bunday band deyarli har nomzodda bor (farqlamaydi) va sarlavha
+# bonusini susaytiradi — "Soliq imtiyozidan foydalanish shartlari" 75 o'rniga 483 berardi.
+CODE_ELEMENT_BONUS = 0.5
+LONG_QUESTION_TERMS = 6
+CODE_WHO_BONUS = 0.3
 # Sarlavha mos kelmasa ham, bitta elementi savol so'zlarining shuncha qismini qamragan bo'lim — jarimasiz (×1.0).
 # 2026-10-13: PF-100 II bo'limi ("Biznes o'sishini rag'batlantirish...") 2-bandi savolning 7 so'zidan 7 tasini
 # qamragan, lekin sarlavha bo'yicha ×0.5 olib, 6 so'zga mos Bojxona kodeksi 338-moddasidan pastga tushardi.
@@ -197,31 +206,65 @@ def topic_coverage(plan: QueryPlan, text: str) -> float:
     return (plain + (by_name if plain else 0)) / len(terms)
 
 
+def _heading_words(heading: str) -> list[str]:
+    return [w for w in _WORDS_RE.findall(normalize(re.sub(r"^\S+-modda\.", "", heading or ""))) if len(w) >= 3]
+
+
+def _question_stems(plan: QueryPlan) -> list[list[str]]:
+    return [[t, *plan.variants.get(t, [])] for t in plan.terms] + [[g] for g in plan.generic_stems]
+
+
 def heading_precision(plan: QueryPlan, heading: str) -> float:
     """Modda sarlavhasi so'zlarining qancha qismi savolda bor ("Soliq agentlari" — 1.0, "Soliq agentlari tomonidan
-    soliqni hisoblab chiqarish tartibi" — 0.43). Faqat "soliq" mos kelsa — 0."""
-    words = [w for w in _WORDS_RE.findall(normalize(re.sub(r"^\S+-modda\.", "", heading or ""))) if len(w) >= 3]
-    stems = [[t, *plan.variants.get(t, [])] for t in plan.terms]
+    soliqni hisoblab chiqarish tartibi" — 0.43). Umumiy so'zlar ("tartibi") ham sanaladi. Faqat "soliq" — 0."""
+    words = _heading_words(heading)
+    stems = _question_stems(plan)
     hit = [w for w in words if any(w.startswith(f) for forms in stems for f in forms)]
     if not words or not any(not w.startswith(tuple(DOMAIN_COMMON)) for w in hit):
         return 0.0
     return len(hit) / len(words)
 
 
+def heading_covers_question(plan: QueryPlan, heading: str) -> bool:
+    """Sarlavha savolning hamma so'zini (umumiylari bilan, kamida 3 ta) qamraydi: "Bayram kunlari ishlaganlik uchun
+    haq to'lash" ↔ "Dam olish kunlarida yoki ishlanmaydigan bayram kunlarida mehnatga haq to'lash"."""
+    stems = [forms for forms in _question_stems(plan) if forms[0] not in DOMAIN_COMMON]
+    words = _heading_words(heading)
+    return len(stems) >= 3 and all(any(w.startswith(f) for f in forms for w in words) for forms in stems)
+
+
+def precise_element(plan: QueryPlan, hit: ArticleHit) -> bool:
+    """Bitta qisqa band savol so'zlarining ≥75% ini qamraydi (savolda ≥4 so'z)."""
+    return len(plan.terms) >= MIN_ELEMENT_TERMS and any(
+        len(m.text) <= MAX_ELEMENT_CHARS and topic_coverage(plan, m.text) >= MIN_ELEMENT_COVERAGE for m in hit.matched)
+
+
+_WHO_RE = re.compile(r"\bkim(lar|ga|ning)?\b")
+_ROLE_RE = re.compile(r"subyekt|rahbar|tolovchi|agent|shaxslar|xodim|ishtirokchi|beruvchi|oluvchi|organ")
+
+
 def hierarchy_weight(plan: QueryPlan, hit: ArticleHit, doc_type: str | None, doc_name: str | None) -> float:
     if doc_type in HIGH_LEVEL_TYPES:
         if hit.modda_raqami is None:
             return 1.0
-        return 1.0 + CODE_HEADING_BONUS * heading_precision(plan, hit.heading)
+        heading = normalize(hit.heading)
+        return (1.0 + CODE_HEADING_BONUS * heading_precision(plan, hit.heading)
+                + CODE_COVERAGE_BONUS * heading_covers_question(plan, hit.heading)
+                + CODE_ELEMENT_BONUS * (len(plan.terms) >= LONG_QUESTION_TERMS and precise_element(plan, hit))
+                + CODE_WHO_BONUS * answers_who(plan, hit, heading))
     unit_title = hit.birlik_nomi or hit.heading
     on_topic = max(topic_coverage(plan, doc_name or hit.document_name), topic_coverage(plan, unit_title))
     if on_topic >= MIN_TOPIC_COVERAGE:
         return ON_TOPIC_WEIGHT
-    if len(plan.terms) >= MIN_ELEMENT_TERMS and any(
-            len(m.text) <= MAX_ELEMENT_CHARS and topic_coverage(plan, m.text) >= MIN_ELEMENT_COVERAGE
-            for m in hit.matched):
+    if precise_element(plan, hit):
         return 1.0
     return OFF_TOPIC_WEIGHT
+
+
+def answers_who(plan: QueryPlan, hit: ArticleHit, heading: str) -> bool:
+    """"Kim" savoli va sarlavhada shaxs/rol ("Buxgalteriya hisobi subyektlari", "Soliq agentlari"). Band matnidagi
+    rol so'zi hisobga olinmaydi — "mas'ul shaxslar" kabi so'zlar har moddada uchraydi (2026-10-13 sinov)."""
+    return bool(_WHO_RE.search(plan.normalized) and _ROLE_RE.search(heading))
 
 
 async def rerank_by_hierarchy(conn: asyncpg.Connection, plan: QueryPlan, hits: list[ArticleHit],

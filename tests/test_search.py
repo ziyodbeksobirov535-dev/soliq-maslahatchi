@@ -445,6 +445,23 @@ def test_section_matching_the_question_in_one_element_is_not_penalized():
     assert hierarchy_weight(analyze("bazaviy miqdor", TODAY), hit, "Указ", hit.document_name) == OFF_TOPIC_WEIGHT
 
 
+def test_code_heading_signals():
+    """Kodeks moddasi: sarlavha savolning hamma so'zini qamraydi; umumiy so'zlar ("tartibi") ham sanaladi;
+    "kim" savolida sarlavhadagi rol."""
+    from app.retrieval.search import answers_who, heading_covers_question, heading_precision, normalize
+
+    plan = analyze("Bayram kunlari ishlaganlik uchun haq to'lash", TODAY)
+    assert heading_covers_question(plan, "263-modda. Dam olish kunlarida yoki ishlanmaydigan bayram kunlarida "
+                                         "mehnatga haq to'lash")
+    assert not heading_covers_question(plan, "208-modda. Ishlanmaydigan bayram kunlari")
+    plan = analyze("Bojxona to'lovlarini to'lash tartibi", TODAY)
+    assert heading_precision(plan, "328-modda. Bojxona to'lovlarini to'lash tartibi") == 1.0
+    plan = analyze("Buxgalteriya hisobini kim yuritadi?", TODAY)
+    assert answers_who(plan, _hit(modda="6"), normalize("6-modda. Buxgalteriya hisobi subyektlari"))
+    assert not answers_who(plan, _hit(modda="4"), normalize("4-modda. Buxgalteriya hisobi"))
+    assert "haq tolash" in analyze("Tungi ish uchun qo'shimcha haq", TODAY).normalized
+
+
 def test_abbreviation_full_name_in_title_counts_only_with_another_word():
     from app.retrieval.search import topic_coverage
 
