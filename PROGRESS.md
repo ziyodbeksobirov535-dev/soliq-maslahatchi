@@ -636,10 +636,12 @@ tuzatish, savolni aniq tushunish ("aborot" ni "axborot" deb tushunish kabi xatol
   (indeksli bitta so'rov 9 s, hammasi xotirada) — kichik serverning CPU krediti tugagan. Sabab — `search_articles`
   har chaqiruvda `corpus` CTE'ni (≈75 ming element, tsvector bilan) to'liq materializatsiya qiladi va har so'z
   IDF'i uchun uni qayta ko'radi; GIN indeks deyarli ishlatilmaydi. Yechim — migratsiya 014 (pastda).
-- Migratsiya `014_qidiruv_tezligi.sql` (yozildi, Supabase'ga **qo'llanmagan** — ruxsat kutilmoqda):
+- Migratsiya `014_qidiruv_tezligi.sql` — foydalanuvchi ruxsati bilan Supabase'ga qo'llandi (2026-10-13 23:09):
   search_articles() natijasi o'zgarmaydi, IDF va nomzodlar GIN indeks bo'yicha; `n`, `terms` — MATERIALIZED
   (birinchi variantda rejalashtiruvchi IDF'ni har (nomzod × so'z) jufti uchun qayta hisoblab, 40 marta sekin edi).
   Mahalliy tekshiruv (Soliq kodeksi, 8 137 element): 156 savolning hammasida natija aynan bir xil (moddalar,
   ballar, mos elementlar); vaqt 18,5 s → 14,0 s. Katta bazada (75 ming element) eski funksiya har chaqiruvda
   hamma elementni ko'radi — yutuq kattaroq.
+  Supabase'da (server tiklangach): "QQS stavkasi qancha?" 10,5 s → 0,9–2,9 s; "Aylanma solig'ini kimlar
+  to'laydi?" 3,1 s → 1,3 s; 20 bo'lakli uzun savol 9,9 s → 3,0 s; natijalar eski funksiya bilan aynan bir xil.
 
