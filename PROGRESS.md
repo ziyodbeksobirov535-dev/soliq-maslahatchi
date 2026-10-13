@@ -522,3 +522,19 @@ ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) baja
 - Qishloq xo'jaligi savoli (yakuniy): kontekstga 461 (aylanma: 1 mlrd chegara; 25 ga+ sug'oriladigan maydonli
   korxonaga qo'llanmaydi) va 436 havolalar orqali qo'shildi; javob 22 iqtibos — hammasi to'g'ri.
 - Testlar: 461 passed.
+
+### PF-100 (QQS / umumiy rejim chegarasi) bog'landi (2026-10-13)
+461-modda matnida aylanma solig'i chegarasi 1 mlrd so'm, lekin 2026-yil 1-iyundan amalda boshqa chegara.
+- Bazada yo'q edi: nomida soliq so'zi yo'q ("Kichik biznes subyektlarining o'sishi ..."), discovery qidiruvlari
+  topmagan. Lex.uz matn qidiruvidan topildi: PF-100, 26.05.2026, lex_id -8236831, amalda. Import qilindi
+  (document_id 475, 64 element), `topilgan_hujjatlar` ga qo'shildi (relevant, imported) → haftalik yangilashda.
+- Farmon 2-bandi: umumbelgilangan tartibga o'tish chegarasi — BHMning 12 000 baravari (umumiy, soha cheklovisiz);
+  5-band: umumiy ovqatlanish, savdo, xizmat sohalariga ixtiyoriy 6% soddalashtirilgan QQS (2030-01-01 gacha).
+  Skill bilimidagi "12 000 BHM faqat shu sohalarga" — xato; tuzatish yangi faylda.
+- `skill-bilimlar/loyiha-tasdiqlangan-bilimlar.md` (yangi, SKILL_FILES ga qo'shildi; 56 bo'lim Supabase'ga yozildi):
+  Lex.uz bilan tasdiqlangan bilimlar. Ishora "PF-100 2-band" — farmonning aynan shu bandi joylashgan bo'limi
+  olinadi (2-bandda "QQS" so'zi yo'q, qidiruv uni topmasdi). Hujjatning boshqa bo'limi kontekstda bo'lsa ham
+  ishora qilingan bo'lim qo'shiladi (mavjudlik bo'lim darajasida).
+- Discovery: "biznes" qidiruvi qo'shildi.
+- Sinov (Supabase): "QQS to'lovchi bo'lish chegarasi qancha?" → 461-modda + PF-100 II bo'lim (2-band) va IV bo'lim (6%).
+- Testlar: 462 passed.

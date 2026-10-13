@@ -118,7 +118,7 @@ async def import_records(conn: asyncpg.Connection, records: list[Record]) -> int
 SKILL_DIR = ROOT / "skill-bilimlar"
 SKILL_FILES = ("bilimlar-bazasi.md", "maxsus-qism-indeksi.md", "kodeks-tuzilishi.md", "hisobot-muddatlari-kalendari.md",
                "jarima-malumotnomasi.md", "norezident-tolov-algoritmi.md", "imtiyoz-sorovnomasi.md",
-               "bitim-tarkibi-solishtirish.md")
+               "bitim-tarkibi-solishtirish.md", "loyiha-tasdiqlangan-bilimlar.md")
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 
 

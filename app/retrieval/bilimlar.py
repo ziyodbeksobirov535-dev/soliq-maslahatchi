@@ -3,7 +3,9 @@
     "QQS to'lovchi bo'lish chegarasi" → bilimlar-bazasi.md bo'limi → "461-modda", "PF-..." → modda/farmon bo'limi
 
 - Bo'lim matni javobga kirmaydi (Lex.uz ustun, spec 2): faqat undagi "N-modda" (Soliq kodeksi) va "PF-N"/"PQ-N"
-  (Prezident hujjati) ishoralari olinadi; hujjat bazada bo'lsa — savolga eng mos bo'limi.
+  (Prezident hujjati) ishoralari olinadi; hujjat bazada bo'lsa — savolga eng mos bo'limi. "PF-100 2-band" — aniq
+  band joylashgan bo'lim (bandda savol so'zi bo'lmasa ham: PF-100 2-bandida "QQS" so'zi yo'q, "umumbelgilangan
+  tartibga o'tish chegarasi" deyilgan).
 - Bo'lim savolning mazmunli so'zlarining kamida yarmini (va kamida 2 tasini, agar 2+ bo'lsa) qamrashi kerak.
 """
 
@@ -20,7 +22,7 @@ from app.retrieval.query import QueryPlan, normalize
 SK = "-4674902"
 MAX_RECORDS = 3
 MAX_ARTICLES = 2
-_ACT_RE = re.compile(r"\b(PF|PQ)-(\d{1,4})\b")
+_ACT_RE = re.compile(r"\b(PF|PQ)-(\d{1,4})\b(?:[\s(]*(\d{1,3})-band)?")
 
 
 def terms(plan: QueryPlan) -> list[str]:
@@ -33,22 +35,23 @@ def terms(plan: QueryPlan) -> list[str]:
     return out
 
 
-def references(text: str) -> list[tuple[str, str]]:
-    """Matndagi ishoralar: [("modda", "461"), ("PF", "153")] — tartib bo'yicha, takrorsiz. Bob oralig'i
-    ("1-15-modda", "30-60-modda") — ishora emas, tashlanadi; qo'shni moddalar ("339-340-modda") qoladi."""
-    found: list[tuple[int, str, str]] = []
+def references(text: str) -> list[tuple[str, ...]]:
+    """Matndagi ishoralar: [("modda", "461"), ("PF", "153"), ("PF", "100", "2")] — tartib bo'yicha, takrorsiz
+    (uchinchisi — farmon bandi). Bob oralig'i ("1-15-modda", "30-60-modda") — ishora emas, tashlanadi; qo'shni
+    moddalar ("339-340-modda") qoladi."""
+    found: list[tuple[int, tuple[str, ...]]] = []
     for m in re.finditer(r"(\d{1,3}[¹²³⁴⁵⁶⁷⁸⁹]?(?:\s*(?:,|va|—|-)\s*\d{1,3}[¹²³⁴⁵⁶⁷⁸⁹]?)*)-modda", text):
         span = re.fullmatch(r"(\d{1,3})\s*[-—]\s*(\d{1,3})", m.group(1))
         if span and int(span.group(2)) - int(span.group(1)) > 1:
             continue
         for num in re.findall(r"\d{1,3}[¹²³⁴⁵⁶⁷⁸⁹]?", m.group(1)):
-            found.append((m.start(), "modda", num))
+            found.append((m.start(), ("modda", num)))
     for m in _ACT_RE.finditer(text):
-        found.append((m.start(), m.group(1), m.group(2)))
-    out: list[tuple[str, str]] = []
-    for _, kind, num in sorted(found):
-        if (kind, num) not in out:
-            out.append((kind, num))
+        found.append((m.start(), (m.group(1), m.group(2), m.group(3)) if m.group(3) else (m.group(1), m.group(2))))
+    out: list[tuple[str, ...]] = []
+    for _, ref in sorted(found):
+        if ref not in out:
+            out.append(ref)
     return out
 
 
@@ -66,13 +69,13 @@ def _chunks(text: str) -> list[str]:
     return [c for c in chunks if c]
 
 
-def relevant_references(plan: QueryPlan, topic: str, text: str) -> list[tuple[str, str]]:
+def relevant_references(plan: QueryPlan, topic: str, text: str) -> list[tuple[str, ...]]:
     """Bo'limdagi ishoralar faqat sarlavhadan va savol so'zi uchragan qatorlardan (bo'lim boshqa mavzudagi
     qatorlari kontekstga shovqin qo'shmasin: "Asosiy stavkalar" bo'limida QQS qatori ≠ norezident qatori)."""
     stems = [[t, *plan.variants.get(t, [])] for t in plan.terms if t != "soli"]
     lines = [topic] + [chunk for chunk in _chunks(text)
                        if any(any(w.startswith(f) for f in forms for w in normalize(chunk).split()) for forms in stems)]
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, ...]] = []
     for line in lines:
         out += [r for r in references(line) if r not in out]
     return out
@@ -112,14 +115,24 @@ async def _act_lex_id(conn: asyncpg.Connection, kind: str, number: str) -> str |
     return None
 
 
+async def _band_birlik(conn: asyncpg.Connection, lex_id: str, band: str) -> str | None:
+    """Farmon/qaror bandi ("2. 2026-yil 1-iyundan ...") joylashgan bo'lim."""
+    return await conn.fetchval(
+        "SELECT e.birlik FROM elementlar e JOIN hujjatlar h ON h.id = e.document_id "
+        "WHERE h.lex_id = $1 AND e.birlik IS NOT NULL AND e.text ~ $2 ORDER BY e.order_no LIMIT 1",
+        lex_id, rf"^\s*{band}\.\s")
+
+
 async def knowledge_articles(conn: asyncpg.Connection, plan: QueryPlan, present: set[tuple[str, str]],
                              limit: int = MAX_ARTICLES) -> list[Article]:
-    """Mos bilim bo'limlari ishora qilgan moddalar/hujjat bo'limlari (kontekstda yo'q, bazada bor)."""
+    """Mos bilim bo'limlari ishora qilgan moddalar/hujjat bo'limlari (kontekstda yo'q, bazada bor).
+    present: (lex_id, modda) yoki (lex_id, "b:" + bo'lim) — hujjatning boshqa bo'limi kontekstda bo'lsa ham
+    ishora qilingan bo'lim qo'shiladi."""
     from app.retrieval.search import search_articles  # aylanma importdan qochish
 
     out: list[Article] = []
     for record in await matching_records(conn, plan):
-        for kind, num in relevant_references(plan, record["topic"], record["text"]):
+        for kind, num, *band in relevant_references(plan, record["topic"], record["text"]):
             if len(out) >= limit:
                 return out
             if kind == "modda":
@@ -130,17 +143,24 @@ async def knowledge_articles(conn: asyncpg.Connection, plan: QueryPlan, present:
                 article = await get_article(conn, number, SK)
             else:
                 lex_id = await _act_lex_id(conn, kind, num)
-                if lex_id is None or (lex_id, "") in present:
+                if lex_id is None:
                     continue
-                present.add((lex_id, ""))
-                scoped = QueryPlan(question=plan.question, normalized=plan.normalized, terms=plan.terms,
-                                   variants=plan.variants, lex_ids=[lex_id])
-                hits = await search_articles(conn, scoped, limit=1)
-                if not hits:
+                birlik = await _band_birlik(conn, lex_id, band[0]) if band else None
+                if birlik is not None:
+                    key, article_number = (lex_id, "b:" + birlik), None
+                else:
+                    scoped = QueryPlan(question=plan.question, normalized=plan.normalized, terms=plan.terms,
+                                       variants=plan.variants, lex_ids=[lex_id])
+                    hits = await search_articles(conn, scoped, limit=1)
+                    if not hits:
+                        continue
+                    birlik, article_number = hits[0].birlik, hits[0].modda_raqami
+                    key = (lex_id, article_number) if article_number else (lex_id, "b:" + (birlik or ""))
+                if key in present:
                     continue
-                h = hits[0]
-                article = (await get_article(conn, h.modda_raqami, lex_id) if h.modda_raqami
-                           else await get_section(conn, lex_id, h.birlik))
+                present.add(key)
+                article = (await get_article(conn, article_number, lex_id) if article_number
+                           else await get_section(conn, lex_id, birlik))
             if article is not None:
                 out.append(article)
     return out

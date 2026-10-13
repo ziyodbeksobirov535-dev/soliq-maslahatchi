@@ -54,6 +54,7 @@ QIDIRUVLAR: tuple[str, ...] = (
     "faoliyatini amalga oshirish",  # 121
     "faoliyat yuritish",            # 24
     "tadbirkorlik",                 # 319
+    "biznes",                       # 2026-10-13: PF-100 (QQS chegarasi) nomida faqat "kichik biznes"
 )
 # Yuklanadigan hujjat turlari (Lex.uz qidiruv badge'i, normallashtirilgan) — aynan shu turlar.
 DOC_TYPES = (

@@ -173,7 +173,7 @@ async def benefit_sources(conn: asyncpg.Connection, plan, today: date,
 async def knowledge_sources(conn: asyncpg.Connection, plan, articles: list[SourceArticle]) -> list[SourceArticle]:
     """Skill bilimlari yo'naltirgan moddalar/hujjat bo'limlari (bo'lim matni emas — Lex.uz matni)."""
     present = {(a.lex_id, a.modda_raqami) for a in articles if a.modda_raqami}
-    present |= {(a.lex_id, "") for a in articles if a.modda_raqami is None}
+    present |= {(a.lex_id, "b:" + (a.birlik or "")) for a in articles if a.modda_raqami is None}
     return [article_to_source(a) for a in await knowledge_articles(conn, plan, present)]
 
 
