@@ -46,6 +46,7 @@ from app.services.answer import (  # noqa: E402
     format_answer,
     benefit_sources,
     knowledge_sources,
+    query_knowledge,
     referenced_sources,
     round_sources,
 )
@@ -67,6 +68,7 @@ async def sources(conn, question: str, extra: list[str], rounds: list[list[str]]
         articles += await referenced_sources(conn, articles, hits)  # botdagidek: havolalar zanjiri
         articles += await benefit_sources(conn, result.plan, today, articles)  # imtiyoz savoli: ro'yxatdan
         articles += await knowledge_sources(conn, result.plan, articles)  # skill bilimlari yo'naltirgan
+        articles += await query_knowledge(conn, extra, articles, today)  # AI so'rovlariga mos bilimlar
         for needs_more in (rounds or [])[:MAX_EXTRA_ROUNDS]:  # botdagidek: yangi birliklar va bilim manbalari
             articles += await round_sources(conn, needs_more, articles, today)
     return result, articles, today

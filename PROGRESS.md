@@ -677,3 +677,18 @@ Foydalanuvchi so'rovi: Anthropic kreditisiz sinash uchun bepul API.
   foydalanuvchi ikki savol; navbat.
 - Testlar: 525 passed.
 
+### Telegram sinovi: QQS chegarasi xatosi (2026-10-14)
+Foydalanuvchi: "YaTT ni QQSga o'tish chegarasi" — bot 1 mlrd (SK 237/461) dedi; "BHMning 12 000 baravari" savoliga
+bojxona omborlari haqida javob berdi. To'g'ri: PF-100 2-band (2026-06-01 dan BHMning 12 000 baravari), kodeks
+matni hali o'zgartirilmagan.
+- Sabablar: savoldagi e'tiroz so'zlari ("hosh, chalkashtirib yubording") bilim yozuvining mosligini buzdi; bilim
+  yozuvlari AI so'rovlariga qo'llanmasdi; "BHM" qisqartmasi va "12 000" ↔ "o'n ikki ming" (farmon matni) tanilmasdi;
+  model kodeks va keyingi farmon ziddiyatida qaysi qiymat amaldaligini bilmasdi.
+- Tuzatildi: `answer.query_knowledge` — bilim yozuvlari AI tuzgan so'rovlarga ham (≤2 manba); `bhm` qisqartmasi
+  ("bazaviy hisoblash miqdori"); katta sonlarga so'z shakli (`number_words`: 12 000 → "o'n ikki ming"; yil, sana va
+  modda raqamiga tegilmaydi); e'tiroz/so'zlashuv stop-so'zlari; SYSTEM_PROMPT 5-qoida: farmon kodeksdagi qiymatni
+  sanadan boshlab o'zgartirgan va sana o'tgan bo'lsa — farmondagi qiymat javob, kodeksdagi eski qiymat alohida.
+- Jonli (Gemini 3.1-flash-lite): ikkala savol — "2026-yil 1-iyundan BHMning 12 000 baravari", iqtibos PF-100.
+  Lite model kodeksdagi eski qiymatni alohida qayd etmadi (asosiy model band edi).
+- Testlar: 526 passed.
+

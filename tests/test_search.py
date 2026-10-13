@@ -157,6 +157,17 @@ def test_colloquial_to_legal_terms(question, normalized_part):
     assert normalized_part in analyze(question, TODAY).normalized
 
 
+def test_numbers_get_word_form_and_bhm_abbreviation():
+    from app.retrieval.query import number_words
+
+    assert number_words(12000) == "on ikki ming" and number_words(4500) == "tort ming besh yuz"
+    assert number_words(412000) == "tort yuz on ikki ming" and number_words(100000) == "yuz ming"
+    plan = analyze("chegara bhms ning 12 000 baravari boldi deb eshitgan edim", TODAY)
+    assert plan.terms == ["chegara", "bhm", "on", "ikki", "ming", "baravar"]  # PF-100: "o'n ikki ming baravari"
+    assert analyze("hosh chalkashtrib yubording yatt ni nds ga otish chegarasi qanday", TODAY).terms == \
+        ["yatt", "qqs", "otish", "chegara"]
+
+
 def test_russian_phrases():
     assert russian_to_uzbek("Кто платит налог с оборота?").split() == "kim tolaydi aylanmadan olinadigan soliq".split()
     assert "jshds" in russian_to_uzbek("Подоходный налог ставка")

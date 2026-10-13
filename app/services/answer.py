@@ -187,13 +187,21 @@ async def round_sources(conn: asyncpg.Connection, queries: list[str], articles: 
     present = {(a.lex_id, *a.key[1:]) for a in articles}
     groups = [await _search_text(conn, q, today, None) for q in queries[:3]]
     new = await _articles_from_hits(conn, pick_new_hits(groups, present, EXTRA_PER_ROUND))
+    return new + await query_knowledge(conn, queries[:3], articles + new, today)
+
+
+async def query_knowledge(conn: asyncpg.Connection, queries: list[str], articles: list[SourceArticle],
+                          today: date, limit: int = MAX_ROUND_KNOWLEDGE) -> list[SourceArticle]:
+    """So'rovlarga (AI tuzgan rasmiy so'rovlar, needs_more) mos bilim yozuvlari ishora qilgan manbalar. Savolning
+    o'zida so'zlashuv so'zlari ko'p bo'lsa ("hosh, chalkashtirib yubording, yatt ni nds ga o'tish chegarasi"),
+    yozuv faqat AI so'rovi bilan mos keladi (2026-10-14 sinov: PF-100 kontekstga kirmagan edi)."""
     knowledge: list[SourceArticle] = []
-    for q in queries[:3]:
-        if len(knowledge) >= MAX_ROUND_KNOWLEDGE:
+    for q in queries:
+        if len(knowledge) >= limit:
             break
-        found = await knowledge_sources(conn, analyze(q, today), articles + new + knowledge)
-        knowledge += found[: MAX_ROUND_KNOWLEDGE - len(knowledge)]
-    return new + knowledge
+        found = await knowledge_sources(conn, analyze(q, today), articles + knowledge)
+        knowledge += found[: limit - len(knowledge)]
+    return knowledge
 
 
 def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
@@ -351,6 +359,7 @@ async def answer_question(
         articles += await referenced_sources(conn, articles, hits)
         articles += await benefit_sources(conn, result.plan, today, articles)
         articles += await knowledge_sources(conn, result.plan, articles)
+        articles += await query_knowledge(conn, queries[1:], articles, today)
 
         rounds = 0
         note = None

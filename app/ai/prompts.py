@@ -27,6 +27,10 @@ MANBA QOIDALARI (buzilmaydi):
    nimani qidirish kerakligini aniq yoz (masalan "QQS to'lovchisi bo'lish chegarasi"),
    confidence = "low".
 5. Manbalar bir-biriga zid ko'rinsa — buni ochiq ayt, sanalar va holatni solishtir.
+   Ko'p uchraydigan holat: Prezident farmoni yoki qarori (<bolim>) kodeksdagi qiymatni (chegara, stavka, muddat)
+   ma'lum sanadan boshlab boshqacha belgilaydi, kodeks matni esa hali o'zgartirilmagan. Bunda, agar o'sha sana
+   <bugun> dan oldin bo'lsa, farmondagi yangi qiymatni amaldagi javob qilib ber, kodeksdagi eski qiymatni
+   "kodeks matnida hali ... deb yozilgan" deb alohida qayd et, ikkalasiga iqtibos qo'y.
 6. Hujjat holati "amalda" bo'lmasa (kuchga kirmagan, kuchini yo'qotgan) — uni amaldagi norma
    sifatida taqdim etma.
 7. Hisob-kitob kerak bo'lsa: stavka va formulani faqat manbadan ol, formulani ko'rsat va

@@ -92,6 +92,8 @@ STOPWORDS = frozenset(
     istayman qilaman qilamiz yuki oyida yilda hozir ortacha kutilmoqda
     kimlar kimga kimni kimning kimdan boladimi bolarmi bolsam bolsak qilsam qilsak
     shugullanaman shugullanamiz shugullanadi har bolaman bolamiz bolasiz man biz
+    hosh xosh xop mayli eshitdim eshitgan eshitganman edim edik boldi bolgan ekanmi chalkashtirib chalkashtirding
+    yubording yubordingiz notogri xato tushunmading
     """.split()
 )
 
@@ -139,6 +141,7 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
     "qqs": ("qoshilgan qiymat soligi",),
     "jshds": ("jismoniy shaxslardan olinadigan daromad soligi",),
     "yatt": ("yakka tartibdagi tadbirkor",),
+    "bhm": ("bazaviy hisoblash miqdori",),
     "aylanma": ("aylanmadan olinadigan soliq",),
     "jarima": ("moliyaviy sanksiya", "penya"),
     "topshir": ("taqdim etish",),
@@ -147,7 +150,7 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
 }
 
 # Qisqartmalar qo'shimcha bilan keladi ("QQSga", "JSHDSni") — prefiks bo'yicha tan olinadi.
-ABBREVIATIONS = ("jshds", "qqs", "yatt")
+ABBREVIATIONS = ("jshds", "qqs", "yatt", "bhm")
 
 DOCUMENT_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bsoliq kodeks"), "-4674902"),
@@ -180,6 +183,9 @@ _LATIN_RU_RE = re.compile(r"\b(" + "|".join(LATIN_RU_TERMS) + r")\w*")
 # "xodimning tashabbusiga ko'ra mehnat shartnomasini bekor qilish" (2026-10-13 sohalar sinovi).
 COLLOQUIAL: tuple[tuple[re.Pattern[str], str], ...] = tuple((re.compile(p), r) for p, r in (
     (r"\bnds(\w{0,4})\b", r"qqs\1"),  # "NDSni", "NDSga"
+    (r"\bbhms?(\w{0,5})\b", r"bhm\1"),  # "BHMning", "bhms ning"
+    (r"\bbazaviy hisoblash miqdor\w*", "bhm"),
+    (r"\bchalkash\w*", " "),  # foydalanuvchi e'tirozi ("chalkashtirib yubording") — qidiruv so'zi emas
     (r"\bndfl(\w{0,4})\b", r"jshds\1"),
     (r"\bnalog\w* na pribil\w*", "foyda soligi"),
     (r"\bnalog\w* na imushestv\w*", "mol-mulk soligi"),
@@ -219,6 +225,33 @@ COLLOQUIAL: tuple[tuple[re.Pattern[str], str], ...] = tuple((re.compile(p), r) f
 # takrorlaydigan qaror ilovalari 258-moddadan (QQS stavkasi) yuqoriga chiqardi (2026-10-13 sinov).
 FULL_TAX_NAMES = ((re.compile(r"\bqoshilgan qiymat soli[gq]\w*"), "qqs"),
                   (re.compile(r"\bjismoniy shaxslardan olinadigan daromad soli[gq]\w*"), "jshds"))
+
+
+# Qonun matnida katta sonlar ko'pincha so'z bilan: "bazaviy hisoblash miqdorining o'n ikki ming baravari"
+# (PF-100). Savoldagi "12 000" yoniga so'z shakli qo'shiladi (2026-10-14 sinov: topilmagan edi).
+# Faqat aniq katta son: "12 000" (oraliq bilan) yoki 5–6 xonali; yil ("2024-yil"), sana ("01.03.2025"), modda raqami
+# ("1234-modda") emas — ular tarixiy sana va modda aniqlashda ishlatiladi.
+_NUMBER_RE = re.compile(r"(?<![\d.\-])(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d{5,6})(?![\d.\-])")
+_ONES = ["", "bir", "ikki", "uch", "tort", "besh", "olti", "yetti", "sakkiz", "toqqiz"]
+_TENS = ["", "on", "yigirma", "ottiz", "qirq", "ellik", "oltmish", "yetmish", "sakson", "toqson"]
+
+
+def number_words(n: int) -> str:
+    """1 ≤ n < 1 000 000 → o'zbekcha so'z (normallashtirilgan): 12000 → "on ikki ming"."""
+    def below_thousand(k: int) -> list[str]:
+        out = []
+        if k >= 100:
+            out += ([_ONES[k // 100]] if k // 100 > 1 else []) + ["yuz"]
+        out += [w for w in (_TENS[k // 10 % 10], _ONES[k % 10]) if w]
+        return out
+
+    if not 0 < n < 1_000_000:
+        return ""
+    words = []
+    if n >= 1000:
+        words += (below_thousand(n // 1000) if n // 1000 > 1 else ["bir"]) + ["ming"]
+    words += below_thousand(n % 1000)
+    return " ".join(words)
 
 
 def transliterate(text: str) -> str:
@@ -446,6 +479,7 @@ def analyze(question: str, today: date) -> QueryPlan:
     for pattern, abbr in FULL_TAX_NAMES:
         norm = pattern.sub(abbr, norm)
     norm = _SHORT_VERB_COND_RE.sub(r"\1ish", norm)
+    norm = _NUMBER_RE.sub(lambda m: f"{m.group(0)} {number_words(int(re.sub(r'\D', '', m.group(0))))}", norm)
     plan = QueryPlan(question=question, normalized=norm, language="ru" if russian else "uz")
 
     m = _ARTICLE_RE.search(norm)
