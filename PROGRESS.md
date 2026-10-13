@@ -587,3 +587,36 @@ Boshlang'ich: kodeks top-1/3/6 = 9/13/14, qaror 8/9/12. Yakuniy: kodeks 9/13/14 
   sig'maydi. 2-raund bilim manbalari ba'zan shovqin. "6 foizli QQSni tanlasam" — qidiruvda IV yo'q, bilim
   yozuvi orqali kiradi.
 - Testlar: 482 passed.
+
+### Ko'p sohali sinov va savolni tushunish (2026-10-13)
+Foydalanuvchi so'rovi: "kim to'laydi" muammosini tuzatish, sohalar bo'yicha savol berib barcha xatolarni topish va
+tuzatish, savolni aniq tushunish ("aborot" ni "axborot" deb tushunish kabi xatolar bo'lmasin).
+- `scripts/sohalar_sinovi.py` — 3 to'plam, 156 savol (QQS, aylanma, foyda, JSHDS, ijtimoiy, mol-mulk, yer, suv,
+  yer qa'ri, aksiz, umumiy qoidalar, mehnat, buxgalteriya, bojxona, so'zlashuv/rus/kirill). Kutilgan moddalar
+  sarlavhalardan. 3-to'plam tuzatishlarda qaralmagan (umumlashuv tekshiruvi).
+  Natija (top-1/3/6): 1-to'plam 30/42/50 → 66/71/73 (73 ta); 2-to'plam 20/31/35 → 45/50/52 (52);
+  3-to'plam 17/21/23 → 25/29/31 (31). Avvalgi o'lchov (17 kodeks + 13 qaror) yomonlashmadi.
+- `app/retrieval/structure.py` — Soliq kodeksi tuzilmasi: soliq turi (QQS, aylanma, foyda, JSHDS, ijtimoiy,
+  mol-mulk, yer, suv, yer qa'ri, renta, aksiz) + jihat (to'lovchilar, stavka, obyekt, baza, davr, imtiyoz, to'lash/
+  hisobot, hisoblash, qaytarish, import) → o'sha bo'limdagi mos sarlavhali modda. Bo'lim chegarasi — Lex.uz
+  matnidagi "X BO'LIM. ..." sarlavhalari (modda raqami o'ylab topilmaydi). Jihatsiz savol ("mol-mulk solig'i
+  jismoniy shaxslar") — to'lovchilar va stavkalar. Mol-mulk va yer solig'ida "uy/fuqaro" — jismoniy bob.
+  `search_articles` ichida — asosiy qidiruv, AI so'rovlari va needs_more raundlari uchun.
+- Kodeks moddasi sarlavhasi savolga qanchalik aniq mos bo'lsa — bonus (×1.0–1.3): "Soliq agentlari", "Penya".
+- So'zlashuv → qonun tili (`query.COLLOQUIAL`): NDS/NDFL (qo'shimchali "NDSni" ham), nalog, pribil, shtraf,
+  otpusk, dekret, zarplata/maosh, kassa apparati → nazorat-kassa texnikasi, "o'z xohishi bilan ishdan ketish" →
+  xodimning tashabbusiga ko'ra bekor qilish, "ishdan bo'shatish" → mehnat shartnomasini bekor qilish (asl so'z
+  ham qoladi), "ta'til necha kun" → eng kam davomiyligi, "kech to'lash" → penya, "hisobotni kech topshirish" →
+  hisobot taqdim etish tartibini buzish, "ish haqidan soliq" → JSHDS. YaTT qisqartmasi.
+- Rus tili: iboralar ("налог с оборота", "налог на прибыль", "кто платит", "срок сдачи", "физлиц").
+- Imlo: shart mayli "-sa" ("kechiktirsa" → "kechiktirmay" bo'lardi), kesimlik "-man/-miz/-siz" ("rezidentman" →
+  "rezidentlar" bo'lardi); stop-so'z "man", "biz", "har".
+- AI qismi: so'rov yozuvchi (fast model) va javob ko'rsatmalari kuchaytirildi — so'zlashuv, imlo, ruscha so'zlar,
+  savoldagi har masalaga alohida rasmiy so'rov, savoldagi raqamlarni manba shartlari bilan solishtirish.
+- AI so'rovlari natijalari endi navbat bilan birlashtiriladi (`_merge_hits` → `pick_new_hits`): ballar so'rovlar
+  o'rtasida taqqoslanmaydi; avval ko'p so'zli savol 5 o'rinni egallab, AI so'rovi topgan 381-moddani chiqarardi.
+- To'liq sinov (javobni Claude Code yozdi, bot tekshirdi): mehnat ta'tili va kompensatsiya (7 iqtibos), dividend
+  (8), ruscha mol-mulk solig'i (7), YaTT aylanma 800 mln (11, needs_more → 469) — hammasi to'g'ri.
+- Ochiq: AI'siz rejimda (API mablag'i yo'q) ko'p masalali savollarda ba'zi aniq moddalar faqat AI so'rovlari
+  orqali keladi (YaTT savolida 467, dividend savolida 381).
+

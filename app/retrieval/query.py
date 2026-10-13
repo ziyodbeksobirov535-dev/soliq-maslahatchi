@@ -60,6 +60,7 @@ RU_TERMS: dict[str, str] = {
     "субсиди": "subsidiya", "перевоз": "tashish", "груз": "yuk", "строител": "qurilish",
     "сельскохозяйств": "qishloq xojaligi", "штрафн": "jarima", "налоговый кодекс": "soliq kodeksi",
     "плательщик": "tolovchi", "декрет": "homiladorlik va tugish tatili", "зарплат": "ish haqi",
+    "физлиц": "jismoniy shaxs", "юрлиц": "yuridik shaxs",
 }
 _RU_KEYS = sorted(RU_TERMS, key=len, reverse=True)
 # O'zbek kirillida ishlatilmaydigan ruscha atamalar (o'zbekchada "солиқ", "фойда", "муддат", "ҳисобот"...).
@@ -90,7 +91,7 @@ STOPWORDS = frozenset(
     ayting aytib aytsangiz iltimos rahmat salom assalomu alaykum yordam bilmoqchiman bilaman xohlayman
     istayman qilaman qilamiz yuki oyida yilda hozir ortacha kutilmoqda
     kimlar kimga kimni kimning kimdan boladimi bolarmi bolsam bolsak qilsam qilsak
-    shugullanaman shugullanamiz shugullanadi har bolaman bolamiz bolasiz
+    shugullanaman shugullanamiz shugullanadi har bolaman bolamiz bolasiz man biz
     """.split()
 )
 

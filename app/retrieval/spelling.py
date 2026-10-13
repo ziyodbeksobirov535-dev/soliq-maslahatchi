@@ -22,7 +22,8 @@ log = logging.getLogger(__name__)
 
 MIN_WORD = 5
 CANDIDATES = 30
-POSSESSIVE = ("imiz", "ingiz", "ngiz", "miz", "ing", "im", "m")
+# Egalik va kesimlik (shaxs) qo'shimchalari: "firmam", "korxonamiz", "rezidentman", "tadbirkormiz".
+POSSESSIVE = ("imiz", "ingiz", "ngiz", "miz", "ing", "man", "san", "siz", "dir", "im", "m")
 MIN_BASE = 4
 
 

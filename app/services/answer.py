@@ -213,13 +213,10 @@ def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> l
 
 
 def _merge_hits(groups: list[list[ArticleHit]], limit: int) -> list[ArticleHit]:
-    best: dict[tuple[str, tuple[str, str]], ArticleHit] = {}
-    for hits in groups:
-        for h in hits:
-            key = (h.lex_id, h.unit_key)
-            if key not in best or h.score > best[key].score:
-                best[key] = h
-    return sorted(best.values(), key=lambda h: h.score, reverse=True)[:limit]
+    """Savol va AI so'rovlari natijalari navbat bilan: avval har birining eng yaxshisi (savolniki birinchi).
+    Ballar so'rovlar o'rtasida taqqoslanmaydi — ko'p so'zli savolning ballari katta bo'lib, aniq qisqa so'rov
+    topgan moddani (masalan, "daromad solig'i stavkalari" → 381) chiqarib tashlardi (2026-10-13 sinov)."""
+    return pick_new_hits(groups, set(), limit)
 
 
 async def _search_text(conn: asyncpg.Connection, text: str, today: date, lex_ids: list[str] | None) -> list[ArticleHit]:
