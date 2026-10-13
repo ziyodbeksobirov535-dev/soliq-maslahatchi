@@ -39,16 +39,15 @@ from app.services.answer import (  # noqa: E402
     MAX_SOURCES,
     FinalAnswer,
     _articles_from_hits,
-    EXTRA_PER_ROUND,
     MAX_EXTRA_ROUNDS,
     _merge_hits,
     _search_text,
     article_to_source,
     format_answer,
-    pick_new_hits,
     benefit_sources,
     knowledge_sources,
     referenced_sources,
+    round_sources,
 )
 
 OUT = Path(__file__).resolve().parents[1] / ".cache" / "sinov"
@@ -68,10 +67,8 @@ async def sources(conn, question: str, extra: list[str], rounds: list[list[str]]
         articles += await referenced_sources(conn, articles, hits)  # botdagidek: havolalar zanjiri
         articles += await benefit_sources(conn, result.plan, today, articles)  # imtiyoz savoli: ro'yxatdan
         articles += await knowledge_sources(conn, result.plan, articles)  # skill bilimlari yo'naltirgan
-        for needs_more in (rounds or [])[:MAX_EXTRA_ROUNDS]:  # botdagidek: mavjud manbalarda yo'q birliklar,
-            present = {(a.lex_id, *a.key[1:]) for a in articles}  # raundga ko'pi bilan EXTRA_PER_ROUND
-            groups = [await _search_text(conn, q, today, None) for q in needs_more[:3]]
-            articles += await _articles_from_hits(conn, pick_new_hits(groups, present, EXTRA_PER_ROUND))
+        for needs_more in (rounds or [])[:MAX_EXTRA_ROUNDS]:  # botdagidek: yangi birliklar va bilim manbalari
+            articles += await round_sources(conn, needs_more, articles, today)
     return result, articles, today
 
 

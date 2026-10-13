@@ -14,7 +14,7 @@ TODAY = date(2026, 10, 13)
 
 def test_parse_skill_sections():
     records = parse_skill_knowledge()
-    assert len(records) == 56
+    assert len(records) == 57
     assert len({r.record_key for r in records}) == len(records)
     assert {r.source for r in records} == {f"skill-bilimlar/{f}" for f in SKILL_FILES}
     assert all("mijozlar" not in r.source and "yangiliklar-manbalari" not in r.source for r in records)
@@ -47,7 +47,7 @@ def test_knowledge_points_question_to_tax_code_articles(db):
             await conn.close()
 
     n, again, arts, none = run(go())
-    assert n == again == 56
+    assert n == again == 57
     assert arts and all(a.document_lex_id == SK_ID for a in arts) and len(arts) <= 2
     assert {a.number for a in arts} & {"351", "353", "352", "357", "358"}
     assert none == []  # aloqasiz savol — hech narsa qo'shilmaydi

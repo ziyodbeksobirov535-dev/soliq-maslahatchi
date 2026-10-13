@@ -17,7 +17,7 @@ import re
 import asyncpg
 
 from app.retrieval.articles import Article, get_article, get_section, normalize_article_number
-from app.retrieval.query import QueryPlan, normalize
+from app.retrieval.query import ABBREVIATIONS, SYNONYMS, QueryPlan, normalize
 
 SK = "-4674902"
 MAX_RECORDS = 3
@@ -30,8 +30,7 @@ def terms(plan: QueryPlan) -> list[str]:
     for t in plan.terms:
         if t == "soli":
             continue
-        forms = [t, *plan.variants.get(t, [])]
-        out.append("(" + " | ".join(f"{f}:*" for f in forms) + ")" if len(forms) > 1 else f"{t}:*")
+        out.append(plan.term_query(t))
     return out
 
 
@@ -73,8 +72,14 @@ def relevant_references(plan: QueryPlan, topic: str, text: str) -> list[tuple[st
     """Bo'limdagi ishoralar faqat sarlavhadan va savol so'zi uchragan qatorlardan (bo'lim boshqa mavzudagi
     qatorlari kontekstga shovqin qo'shmasin: "Asosiy stavkalar" bo'limida QQS qatori ≠ norezident qatori)."""
     stems = [[t, *plan.variants.get(t, [])] for t in plan.terms if t != "soli"]
-    lines = [topic] + [chunk for chunk in _chunks(text)
-                       if any(any(w.startswith(f) for f in forms for w in normalize(chunk).split()) for forms in stems)]
+    full_names = [p for t in plan.terms if t in ABBREVIATIONS for p in SYNONYMS.get(t, ())]  # "qqs" — to'liq nomi
+
+    def mentions(chunk: str) -> bool:
+        norm = normalize(chunk)
+        return (any(any(w.startswith(f) for f in forms for w in norm.split()) for forms in stems)
+                or any(name in norm for name in full_names))
+
+    lines = [topic] + [chunk for chunk in _chunks(text) if mentions(chunk)]
     out: list[tuple[str, ...]] = []
     for line in lines:
         out += [r for r in references(line) if r not in out]

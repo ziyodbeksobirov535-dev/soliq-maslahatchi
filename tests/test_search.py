@@ -15,7 +15,7 @@ from app.collector.importer import import_document
 from app.database.connection import connect
 from app.retrieval.evaluation import CASES, SK
 from app.retrieval.query import analyze, is_followup, is_russian, normalize, russian_to_uzbek, stem, stem_variants, transliterate
-from app.retrieval.spelling import apply_fixes, best_candidate, edit_distance
+from app.retrieval.spelling import apply_fixes, best_candidate, edit_distance, possessive_base, suggest
 from app.retrieval.search import retrieve
 from tests.conftest import run
 from tests.test_lexuz_parser import SK_ID, card, soliq_kodeksi
@@ -110,6 +110,21 @@ def test_event_date_does_not_hide_requested_date():
 def test_latin_russian_turnover_word():
     assert "aylanma" in analyze("yillik aborotim 100 mlrd", TODAY).terms
     assert "aylanma" in analyze("oborot 5 mlrd bo'lsa QQS kerakmi", TODAY).terms
+
+
+def test_full_tax_name_equals_abbreviation():
+    full = analyze("Qo'shilgan qiymat solig'i stavkasi qancha?", TODAY)
+    short = analyze("QQS stavkasi qancha?", TODAY)
+    assert full.terms == short.terms == ["qqs", "stav"] and full.ts_terms == short.ts_terms
+    assert analyze("jismoniy shaxslardan olinadigan daromad solig'i stavkasi", TODAY).terms == ["jshds", "stav"]
+    assert short.term_query("qqs") == "(qqs:* | (qosh:* & qiymat:* & soli:*))"  # bilim/imtiyoz yozuvlari uchun
+
+
+def test_possessive_base():
+    assert possessive_base("firmam") == "firma"
+    assert possessive_base("korxonamiz") == "korxona"
+    assert possessive_base("hisobingiz") == "hisob"
+    assert possessive_base("stav") is None  # asos juda qisqa
 
 
 def test_current_year_is_not_historical():
@@ -445,3 +460,15 @@ def test_needs_more_slots_are_shared_between_queries():
     b = [_hit("-2", modda="7"), _hit("-2", modda="8")]
     picked = pick_new_hits([a, b], present={("-1", "m", "2")}, limit=3)
     assert [(h.lex_id, h.modda_raqami) for h in picked] == [("-1", "1"), ("-2", "7"), ("-2", "8")]
+
+
+def test_possessive_words_are_not_corrected(sk_db):
+    async def go():
+        conn = await connect(sk_db)
+        try:
+            return await suggest(conn, {"korxonam": "korxonam", "soliqlarimiz": "soliqlarimiz",
+                                        "satvkasi": "satvkasi"})
+        finally:
+            await conn.close()
+
+    assert run(go()) == {"satvkasi": "stavkasi"}  # egalik shakli — to'g'ri so'z, haqiqiy xato tuzatiladi

@@ -39,6 +39,7 @@ MAX_SOURCES = 5
 MAX_EXTRA_ROUNDS = 2
 MAX_ARTICLE_CHARS = 6000
 EXTRA_PER_ROUND = 3
+MAX_ROUND_KNOWLEDGE = 2
 
 INSUFFICIENT_TEXT = (
     "Mavjud rasmiy manbalar asosida bu savolga qat'iy huquqiy xulosa berish uchun ma'lumot yetarli emas."
@@ -175,6 +176,24 @@ async def knowledge_sources(conn: asyncpg.Connection, plan, articles: list[Sourc
     present = {(a.lex_id, a.modda_raqami) for a in articles if a.modda_raqami}
     present |= {(a.lex_id, "b:" + (a.birlik or "")) for a in articles if a.modda_raqami is None}
     return [article_to_source(a) for a in await knowledge_articles(conn, plan, present)]
+
+
+async def round_sources(conn: asyncpg.Connection, queries: list[str], articles: list[SourceArticle],
+                        today: date) -> list[SourceArticle]:
+    """needs_more raundi: har so'rov bo'yicha yangi birliklar (ko'pi bilan EXTRA_PER_ROUND) va so'rovlarga mos
+    bilim yozuvlari ishora qilgan manbalar (ko'pi bilan MAX_ROUND_KNOWLEDGE). Model so'rovi aniq mavzu bo'ladi
+    ("soddalashtirilgan QQS 6 foiz") — bilim yozuvi uni farmonning aynan shu bandiga olib boradi (2026-10-13
+    sinov: bunday so'rovda qidiruv boshqa qarorni birinchi qo'ygan)."""
+    present = {(a.lex_id, *a.key[1:]) for a in articles}
+    groups = [await _search_text(conn, q, today, None) for q in queries[:3]]
+    new = await _articles_from_hits(conn, pick_new_hits(groups, present, EXTRA_PER_ROUND))
+    knowledge: list[SourceArticle] = []
+    for q in queries[:3]:
+        if len(knowledge) >= MAX_ROUND_KNOWLEDGE:
+            break
+        found = await knowledge_sources(conn, analyze(q, today), articles + new + knowledge)
+        knowledge += found[: MAX_ROUND_KNOWLEDGE - len(knowledge)]
+    return new + knowledge
 
 
 def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
@@ -351,15 +370,11 @@ async def answer_question(
             removed += validated.removed_urls
 
             if validated.needs_more and rounds < MAX_EXTRA_ROUNDS:
-                present = {(a.lex_id, *a.key[1:]) for a in articles}
-                groups = []
-                for q in validated.needs_more[:3]:
-                    queries.append(q)
-                    groups.append(await _search_text(conn, q, today, None))
-                new_hits = pick_new_hits(groups, present, EXTRA_PER_ROUND)
+                queries += validated.needs_more[:3]
+                new_sources = await round_sources(conn, validated.needs_more, articles, today)
                 rounds += 1
-                if new_hits:
-                    articles += await _articles_from_hits(conn, new_hits)
+                if new_sources:
+                    articles += new_sources
                     note = "So'rovingiz bo'yicha qo'shimcha manbalar qo'shildi."
                     continue
                 break  # yangi manba topilmadi — qayta so'rashdan foyda yo'q

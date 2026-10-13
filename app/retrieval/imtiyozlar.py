@@ -40,13 +40,12 @@ def is_benefit_question(plan: QueryPlan) -> bool:
 
 
 def topic_terms(plan: QueryPlan) -> list[str]:
-    """Imtiyoz so'zlaridan tashqari mavzu so'zlari (fe'l oilasi bilan OR guruh)."""
+    """Imtiyoz so'zlaridan tashqari mavzu so'zlari (fe'l oilasi va qisqartma to'liq nomi bilan OR guruh)."""
     out = []
     for t in plan.terms:
         if t.startswith(BENEFIT_PREFIXES) or t == "soli":
             continue
-        forms = [t, *plan.variants.get(t, [])]
-        out.append("(" + " | ".join(f"{f}:*" for f in forms) + ")" if len(forms) > 1 else f"{t}:*")
+        out.append(plan.term_query(t))
     return out
 
 

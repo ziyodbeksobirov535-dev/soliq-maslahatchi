@@ -12,11 +12,16 @@ va ma'muriy shart-sharoitlar yaratish to'g'risida") bilan 2026-yil 1-iyundan sol
 tartibiga (QQS to'lovchi) o'tish chegarasi BHMning 12 000 baravari etib belgilangan — bu umumiy chegara,
 faqat bir sohaga emas.
 
-Alohida: 2026-yil 1-iyundan 2030-yil 1-yanvargacha asosiy faoliyati umumiy ovqatlanish, savdo yoki xizmat
-ko'rsatish bo'lgan tadbirkorlik subyektlari (davlat ulushi 50 foiz va undan yuqori korxonalar va yirik soliq
-to'lovchilardan tashqari) ixtiyoriy ravishda 6 foizli soddalashtirilgan QQS tartibini tanlashi mumkin
-(PF-100 5-band).
-
 Tuzatish: skill bilimlarida 12 000 BHM chegarasi faqat savdo, umumiy ovqatlanish va xizmat sohalariga deb
-yozilgan — farmon matniga ko'ra soha cheklovi faqat 6 foizli soddalashtirilgan QQSga tegishli.
+yozilgan — farmon matniga ko'ra soha cheklovi faqat keyingi bo'limdagi ixtiyoriy tartibga tegishli.
+Tekshirilgan: 2026-10-13, https://lex.uz/docs/-8236831
+
+## Soddalashtirilgan QQS — 6 foiz, savdo, umumiy ovqatlanish, xizmat ko'rsatish (PF-100 5-band)
+
+2026-yil 1-iyundan 2030-yil 1-yanvargacha asosiy faoliyati umumiy ovqatlanish, savdo yoki xizmat
+ko'rsatish bo'lgan tadbirkorlik subyektlari (davlat ulushi 50 foiz va undan yuqori korxonalar va yirik soliq
+to'lovchilardan tashqari) ixtiyoriy ravishda soddalashtirilgan QQS tartibini tanlashi mumkin: QQS barcha
+aylanmaga 6 foiz, foyda solig'i 0 foiz, xarid bo'yicha QQS hisobga olinmaydi, xaridor QQSni hisobga oladi
+(farmonning 5–7-bandlari, bitta bo'limda). Umumiy tartib bilan solishtirish uchun: 258-modda (QQS stavkasi),
+337-modda (foyda solig'i stavkalari).
 Tekshirilgan: 2026-10-13, https://lex.uz/docs/-8236831

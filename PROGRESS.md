@@ -548,6 +548,25 @@ ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) baja
   So'zlashuv so'zlari stopword: oyida, yilda, hozir, ortacha, kutilmoqda.
 - `scripts/sinov_javob.py`: `--kerak` takrorlanadi — ikkinchi needs_more raundi (botdagidek ≤2).
 - Natija: 461 + PF-100 (2- va 5-band) + 258 (QQS 12%) + 337 (15%) + 483 (hududiy); 18 iqtibos, hammasi to'g'ri.
-- Ochiq: "qo'shilgan qiymat solig'i stavkasi" (to'liq ibora) 258-moddani topmaydi, "QQS stavkasi" topadi;
-  imlo "firmam" → "firma" (egalik qo'shimchasi) keraksiz tuzatish sifatida ko'rsatiladi.
 - Testlar: 467 passed.
+
+### Ikki kamchilik tuzatildi (2026-10-13)
+- To'liq soliq nomi = qisqartma: "qo'shilgan qiymat solig'i" → "qqs", "jismoniy shaxslardan olinadigan daromad
+  solig'i" → "jshds" (`FULL_TAX_NAMES`). Bilim/imtiyoz yozuvlari va bilim xatboshilari "qqs" ni to'liq nom bilan
+  ham topadi (`QueryPlan.term_query`). Supabase o'lchovi (oldin → keyin): 258 "QQS stavkasi" to'liq nom bilan
+  topilmasdi → 1-o'rin; 381 (JSHDS stavkasi) topilmasdi → 1; 243 (QQSdan ozod aylanmalar) 2 → 1; spec savollari
+  o'zgarmadi (top1 4, top3 6, top6 7 / 8). Sinab ko'rilib rad etilgan: qisqartma va to'liq nomni bitta OR bo'lak
+  qilish (258 → 2-o'rin), sarlavha qamrovida to'liq nomni sanash (QQS qarorlari ×1.2, 258 → 6-o'rin), to'liq nom
+  yoniga qisqartma qo'shish (258, 381 topilmadi). Yo'qotish: to'liq nom bilan yozilgan uzun so'rovda PF-100 IV
+  bo'limi endi "QQS ..." so'rovidagidek pastroq — bilim yozuvi bilan qoplandi (pastda).
+- Imlo: egalik qo'shimchali so'z ("firmam", "korxonamiz", "hisobingiz") asosi lug'atda bo'lsa tuzatilmaydi
+  (`possessive_base`); haqiqiy xato ("satvkasi") avvalgidek tuzatiladi.
+- `loyiha-tasdiqlangan-bilimlar.md`: 6% soddalashtirilgan QQS alohida bo'lim (PF-100 5-band) — 57 bo'lim.
+- needs_more raundi (`round_sources`, bot va sinov skripti umumiy): qidiruvdagi yangi birliklar (≤3) + raund
+  so'rovlariga mos bilim yozuvlari ishora qilgan manbalar (≤2). "soddalashtirilgan QQS 6 foiz" → PF-100 IV.
+- Ulgurji savdo savoli qayta: imlo xabari yo'q; 461, PF-100 II va IV, 258, 337, 483; 18 iqtibos to'g'ri.
+- Ochiq (alohida masala): qidiruv kam so'zga yuqori IDF bilan mos kelganni ko'p so'zga mos kelgandan yuqori
+  qo'yishi mumkin (338 Bojxona m6 > PF-100 II m13); so'z shakllari "tanlasam" (shart mayli), "bo'ladimi"
+  (-mi), "foizli" (-li) o'zakka keltirilmaydi; 2-raund bilim manbalari ba'zan shovqin (351, 5-modda).
+  "QQS ni kim to'laydi?" — 237-modda top-6 da yo'q (oldin ham).
+- Testlar: 470 passed.

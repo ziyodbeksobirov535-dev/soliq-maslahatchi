@@ -161,6 +161,11 @@ _EVENT_AFTER_DATE_RE = re.compile(
 LATIN_RU_TERMS: dict[str, str] = {"oborot": "aylanma", "aborot": "aylanma", "abarot": "aylanma",
                                   "obarot": "aylanma"}
 _LATIN_RU_RE = re.compile(r"\b(" + "|".join(LATIN_RU_TERMS) + r")\w*")
+# To'liq yozilgan soliq nomi → qisqartma ("qo'shilgan qiymat solig'i stavkasi" = "QQS stavkasi"): qisqartma o'zi
+# sinonim iborasini qo'shadi. Aks holda "qo'shilgan", "qiymat" alohida so'z bo'lib, iborani so'zma-so'z
+# takrorlaydigan qaror ilovalari 258-moddadan (QQS stavkasi) yuqoriga chiqardi (2026-10-13 sinov).
+FULL_TAX_NAMES = ((re.compile(r"\bqoshilgan qiymat soli[gq]\w*"), "qqs"),
+                  (re.compile(r"\bjismoniy shaxslardan olinadigan daromad soli[gq]\w*"), "jshds"))
 
 
 def transliterate(text: str) -> str:
@@ -271,6 +276,14 @@ class QueryPlan:
         parts += ["(" + " & ".join(f"{t}:*" for t in phrase) + ")" for phrase in self.phrases]
         return list(dict.fromkeys(parts))
 
+    def term_query(self, t: str) -> str:
+        """Bitta so'z uchun to_tsquery bo'lagi: o'zak, fe'l oilasi va qisqartmaning to'liq nomi ("qqs" →
+        "qo'shilgan qiymat solig'i") — bilim va imtiyoz yozuvlari ko'pincha to'liq nom bilan yozilgan."""
+        forms = [f"{f}:*" for f in (t, *self.variants.get(t, ()))]
+        forms += ["(" + " & ".join(f"{stem(w)}:*" for w in phrase.split()) + ")"
+                  for phrase in SYNONYMS.get(t, ()) if t in ABBREVIATIONS]
+        return forms[0] if len(forms) == 1 else "(" + " | ".join(forms) + ")"
+
     def _term(self, t: str) -> str:
         forms = [t, *self.variants.get(t, ())]
         return f"{t}:*" if len(forms) == 1 else "(" + " | ".join(f"{f}:*" for f in forms) + ")"
@@ -351,6 +364,8 @@ def analyze(question: str, today: date) -> QueryPlan:
     russian = is_russian(question)
     norm = normalize(russian_to_uzbek(question) if russian else question)
     norm = _LATIN_RU_RE.sub(lambda m: LATIN_RU_TERMS[m.group(1)], norm)
+    for pattern, abbr in FULL_TAX_NAMES:
+        norm = pattern.sub(abbr, norm)
     plan = QueryPlan(question=question, normalized=norm, language="ru" if russian else "uz")
 
     m = _ARTICLE_RE.search(norm)

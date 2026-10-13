@@ -7,6 +7,8 @@
 - Nomzod tahrir masofasi (Damerau–Levenshtein: harf qo'shish/o'chirish/almashtirish/o'rnini almashtirish)
   bilan tekshiriladi: 5–7 harfli so'zda 1, 8+ harfda 2. Teng bo'lsa — ko'p uchraydigani.
 - Qisqa so'zlar (< 5 harf) va qisqartmalar (QQS, JSHDS) tuzatilmaydi — xato tuzatish xavfi katta.
+- Egalik qo'shimchasi bilan kelgan so'z ("firmam", "korxonamiz", "hisobingiz") — asosi lug'atda bo'lsa, to'g'ri
+  (qonun matnida birinchi shaxs shakllari deyarli yo'q; 2026-10-13 sinov: "firmam" → "firma" deb ko'rsatilgan edi).
 """
 
 from __future__ import annotations
@@ -20,6 +22,16 @@ log = logging.getLogger(__name__)
 
 MIN_WORD = 5
 CANDIDATES = 30
+POSSESSIVE = ("imiz", "ingiz", "ngiz", "miz", "ing", "im", "m")
+MIN_BASE = 4
+
+
+def possessive_base(stem: str) -> str | None:
+    """Egalik qo'shimchasisiz asos: "firmam" → "firma", "korxonamiz" → "korxona" (asos ≥ 4 harf)."""
+    for suf in POSSESSIVE:
+        if stem.endswith(suf) and len(stem) - len(suf) >= MIN_BASE:
+            return stem[: -len(suf)]
+    return None
 
 
 def edit_distance(a: str, b: str) -> int:
@@ -50,16 +62,18 @@ def best_candidate(word: str, candidates: list[tuple[str, int]]) -> str | None:
 
 
 async def unknown_words(conn: asyncpg.Connection, words: dict[str, str]) -> list[str]:
-    """words: o'zak → so'z. O'zagi bilan boshlanadigan so'z lug'atda yo'q bo'lgan so'zlar."""
+    """words: o'zak → so'z. O'zagi (yoki egalik qo'shimchasisiz asosi) bilan boshlanadigan so'z lug'atda yo'q
+    bo'lgan so'zlar."""
     items = [(s, w) for s, w in words.items() if len(w) >= MIN_WORD and w.isalpha()]
     if not items:
         return []
     rows = await conn.fetch(
         """
-        SELECT u.word FROM unnest($1::text[], $2::text[]) AS u(stem, word)
+        SELECT u.word FROM unnest($1::text[], $2::text[], $3::text[]) AS u(stem, word, base)
         WHERE NOT EXISTS (SELECT 1 FROM sozlar s WHERE s.soz LIKE u.stem || '%')
+          AND (u.base IS NULL OR NOT EXISTS (SELECT 1 FROM sozlar s WHERE s.soz LIKE u.base || '%'))
         """,
-        [s for s, _ in items], [w for _, w in items],
+        [s for s, _ in items], [w for _, w in items], [possessive_base(s) for s, _ in items],
     )
     return [r["word"] for r in rows]
 
