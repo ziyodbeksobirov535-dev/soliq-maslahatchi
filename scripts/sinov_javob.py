@@ -44,6 +44,7 @@ from app.services.answer import (  # noqa: E402
     article_to_source,
     format_answer,
     pick_new_hits,
+    referenced_sources,
 )
 
 OUT = Path(__file__).resolve().parents[1] / ".cache" / "sinov"
@@ -55,9 +56,12 @@ async def sources(conn, question: str, extra: list[str], needs_more: list[str] |
     result = await retrieve(conn, question, today, limit=MAX_SOURCES)
     if result.direct_article is not None:
         articles = [article_to_source(result.direct_article)]
+        articles += await referenced_sources(conn, articles, [])
     else:
         groups = [result.hits] + [await _search_text(conn, q, today, result.plan.lex_ids) for q in extra]
-        articles = await _articles_from_hits(conn, _merge_hits(groups, MAX_SOURCES))
+        hits = _merge_hits(groups, MAX_SOURCES)
+        articles = await _articles_from_hits(conn, hits)
+        articles += await referenced_sources(conn, articles, hits)  # botdagidek: havolalar zanjiri
         if needs_more:  # botdagidek: mavjud manbalarda yo'q birliklar, raundga ko'pi bilan EXTRA_PER_ROUND
             present = {(a.lex_id, *a.key[1:]) for a in articles}
             groups = [await _search_text(conn, q, today, None) for q in needs_more[:3]]

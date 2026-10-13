@@ -28,6 +28,7 @@ from app.ai.prompts import SourceArticle, SourceElement, render_user_message
 from app.ai.validation import ValidatedAnswer, validate_answer
 from app.retrieval.articles import Article, get_article, get_section
 from app.retrieval.query import analyze
+from app.retrieval.references import referenced_articles
 from app.retrieval.search import ArticleHit, SearchResult, retrieve, search_articles
 
 log = logging.getLogger(__name__)
@@ -131,6 +132,19 @@ async def _articles_from_hits(conn: asyncpg.Connection, hits: list[ArticleHit]) 
         if art is not None:
             out.append(article_to_source(art, {m.element_id for m in h.matched}))
     return out
+
+
+async def referenced_sources(conn: asyncpg.Connection, articles: list[SourceArticle],
+                            hits: list[ArticleHit]) -> list[SourceArticle]:
+    """Kontekstdagi moddalar ishora qilgan moddalar (havolalar zanjiri): avval savolga mos elementlardagi
+    havolalar, keyin moddalarning qolgan qismidagilar."""
+    matched = {(h.lex_id, h.unit_key): [m.text for m in h.matched] for h in hits}
+    first, rest = [], []
+    for a in articles:
+        unit = ("m", a.modda_raqami) if a.modda_raqami is not None else ("b", a.birlik or "")
+        first.append((a.lex_id, a.modda_raqami, matched.get((a.lex_id, unit), [])))
+        rest.append((a.lex_id, a.modda_raqami, [e.text for e in a.all_elements()]))
+    return [article_to_source(r) for r in await referenced_articles(conn, first + rest)]
 
 
 def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
@@ -274,6 +288,7 @@ async def answer_question(
         return done(status="historical_unavailable", text=format_historical(result))
 
     try:
+        hits: list[ArticleHit] = []
         if result.direct_article is not None:
             articles = [article_to_source(result.direct_article)]
         else:
@@ -287,6 +302,7 @@ async def answer_question(
             articles = await _articles_from_hits(conn, hits)
         if not articles:
             return done(status="not_found", text=format_insufficient([], []), search_queries=queries)
+        articles += await referenced_sources(conn, articles, hits)
 
         rounds = 0
         note = None
