@@ -37,7 +37,6 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
 )
-from aiogram.utils.chat_action import ChatActionSender
 
 from app.ai.client import LLM
 from app.bot.admin import admin_menu, negative_ratings, news_overview, unanswered
@@ -54,7 +53,7 @@ from app.bot.subscription import CHECK_CALLBACK, GATE_TEXT, MembershipChecker, g
 from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
-from app.retrieval.query import is_followup, normalize
+from app.retrieval.query import is_followup, is_russian, normalize
 from app.services import kalendar, kalkulyator, obuna
 from app.services.answer import answer_question, answer_without_llm
 from app.services.xabarlar import decide, post_to_channel, show_preview
@@ -95,8 +94,10 @@ _MODDA_TOKEN_RE = re.compile(r"\d{1,4}(?:[-.]\d{1,2})?¹?|[a-z]+")
 START_TEXT = (
     "Assalomu alaykum! Men O'zbekiston qonunchiligi bo'yicha yordamchiman.\n\n"
     "Savolingizni oddiy matn bilan yozing — javobni <b>Lex.uz</b>dagi rasmiy manba va havola bilan beraman.\n"
-    "Masalan: <i>Aylanma solig'idan QQSga qachon o'tish kerak?</i>\n"
-    "Lotin yoki kirill yozuvida yozishingiz mumkin; ruscha savoldagi soliq atamalarini ham tushunaman.\n\n"
+    "Masalan: <i>YaTT uchun QQS to'lovchi bo'lish chegarasi qancha?</i>\n"
+    "Lotin, kirill yoki rus tilida yozishingiz mumkin — ruscha savolga rus tilida javob beraman.\n\n"
+    "Kuniga <b>{limit} ta</b> to'liq javob bepul (faqat manbalar ko'rsatilgan javoblar hisoblanmaydi). "
+    "Modda matni va kalkulyator — cheklanmagan.\n\n"
     "Buyruqlar:\n"
     "/modda 461 — Soliq kodeksi moddasi (boshqa hujjat: /modda 106 mehnat). Faqat raqam yozsangiz ham bo'ladi.\n"
     "/hisobla — soliq kalkulyatori (QQS, JSHDS, aylanma solig'i, penya)\n"
@@ -104,8 +105,26 @@ START_TEXT = (
     "/obuna — tarif va kunlik limit\n"
     "/profil — soha, soliq rejimi va tashkiliy shakl (tugmalar bilan)\n"
     "/yangiliklar — qonunchilikdagi yangiliklar\n\n"
-    "Hozir bazada: Soliq, Mehnat, Fuqarolik, Bojxona kodekslari va Buxgalteriya hisobi to'g'risidagi qonun.\n"
+    "Bazada: Soliq, Mehnat, Fuqarolik, Bojxona kodekslari, Buxgalteriya hisobi to'g'risidagi qonun hamda soliq, "
+    "buxgalteriya va tadbirkorlikka oid Prezident farmonlari va hukumat qarorlari.\n"
     "Bot yuridik maslahatchi o'rnini bosmaydi, lekin har bir javobni manbaga bog'laydi."
+)
+START_TEXT_RU = (
+    "Здравствуйте! Я помощник по законодательству Узбекистана.\n\n"
+    "Напишите вопрос обычным текстом — отвечу со ссылкой на официальный источник <b>Lex.uz</b>.\n"
+    "Например: <i>Какой порог для перехода ИП на НДС?</i>\n"
+    "Можно писать на русском или узбекском — на русский вопрос отвечаю на русском "
+    "(источники — тексты законов на узбекском).\n\n"
+    "Бесплатных полных ответов в день: <b>{limit}</b> (ответы только со списком источников не считаются). "
+    "Текст статьи и калькулятор — без ограничений.\n\n"
+    "Команды:\n"
+    "/modda 461 — статья Налогового кодекса (другой документ: /modda 106 mehnat). Можно просто номер.\n"
+    "/hisobla — налоговый калькулятор (НДС, НДФЛ, налог с оборота, пеня)\n"
+    "/kalendar — сроки отчётов и платежей, напоминания\n"
+    "/obuna — тариф и дневной лимит\n"
+    "/profil — сфера, налоговый режим, форма\n"
+    "/yangiliklar — новости законодательства\n\n"
+    "Бот не заменяет юриста, но каждый ответ привязан к источнику."
 )
 MODDA_PROMPT = "Qaysi modda? Raqamini yozing, masalan: <b>461</b> yoki <b>106 mehnat</b>."
 
@@ -129,7 +148,9 @@ async def cmd_start(message: Message, pool: asyncpg.Pool, settings: Settings, st
     tg_id = message.from_user.id
     async with pool.acquire() as conn:
         await ensure_user(conn, tg_id)
-    await message.answer(START_TEXT, parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW)
+    ru = (message.from_user.language_code or "").startswith("ru")
+    text = (START_TEXT_RU if ru else START_TEXT).format(limit=settings.daily_question_limit)
+    await message.answer(text, parse_mode=ParseMode.HTML, link_preview_options=NO_PREVIEW)
     if settings.required_channel and not settings.is_admin(tg_id) and \
             await membership.is_member(message.bot, settings, tg_id) is False:
         await message.answer(GATE_TEXT, parse_mode=ParseMode.HTML, reply_markup=gate_keyboard(settings))
@@ -447,7 +468,8 @@ async def cmd_obuna(message: Message, pool: asyncpg.Pool, settings: Settings) ->
         lines.append(f"Premium — {obuna.expires_text(sub.until, settings.tz)} gacha, "
                      f"kuniga {settings.premium_daily_limit} ta savol.")
     else:
-        lines.append(f"Bepul tarif — kuniga {settings.daily_question_limit} ta savol.")
+        lines.append(f"Bepul tarif — kuniga {settings.daily_question_limit} ta to'liq javob "
+                     "(faqat manbalar ko'rsatilgan javoblar hisoblanmaydi).")
     lines.append(f"Premium: kuniga {settings.premium_daily_limit} ta savol, {settings.premium_days} kun.")
     markup = None
     if payments_enabled(settings):
@@ -662,6 +684,21 @@ async def on_non_text(message: Message) -> None:
 
 BUSY_TEXT = "⏳ Oldingi savolingizga javob tayyorlanmoqda — u kelgach, keyingi savolni yuboring."
 QUEUE_TEXT = "⏳ Hozir savollar ko'p — savolingiz navbatda, javob biroz kechroq keladi."
+LIMIT_TEXT = ("Bugungi to'liq javoblar limiti tugadi — ertaga yana yozing yoki limitni oshiring: /obuna\n"
+              "Hozir ham ishlaydi: modda matni (masalan, <b>461</b>) va /hisobla kalkulyatori.")
+# Javob tayyorlanayotganda: "yozmoqda…" o'rniga o'zgarib boruvchi xabar (javob kelgach o'chiriladi — yangi xabar
+# bildirishnoma beradi). Ruscha savolga — ruscha.
+THINKING = {
+    "uz": {"start": "🤔 O'ylayapman…", "sources": "📚 {n} ta manba topildi — javob yozilmoqda…",
+           "more": "🔎 Qo'shimcha manbalar qidirilmoqda…", "busy": BUSY_TEXT, "queue": QUEUE_TEXT,
+           "limit": LIMIT_TEXT},
+    "ru": {"start": "🤔 Думаю…", "sources": "📚 Найдено источников: {n} — пишу ответ…",
+           "more": "🔎 Ищу дополнительные источники…",
+           "busy": "⏳ Готовлю ответ на предыдущий вопрос — отправьте следующий, когда он придёт.",
+           "queue": "⏳ Сейчас много вопросов — ваш в очереди, ответ придёт чуть позже.",
+           "limit": "Лимит полных ответов на сегодня исчерпан — пишите завтра или увеличьте лимит: /obuna\n"
+                    "Без лимита: текст статьи (например, <b>461</b>) и калькулятор /hisobla."},
+}
 
 
 async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
@@ -678,23 +715,25 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
         return
     # Bitta foydalanuvchining savollari ketma-ket: ikkinchisi parallel ishlansa, javoblar va "davomiy savol"
     # bog'lanishi chalkashadi. Har savol o'z vazifasida, o'z ma'lumotlari bilan — boshqa foydalanuvchiga aralashmaydi.
+    texts = THINKING["ru" if is_russian(question) else "uz"]
     busy = busy if busy is not None else set()
     if tg_id in busy:
-        await message.answer(BUSY_TEXT)
+        await message.answer(texts["busy"])
         return
     busy.add(tg_id)
     try:
         slots = slots or asyncio.Semaphore(1)
         if slots.locked():
-            await message.answer(QUEUE_TEXT)
-        async with slots, ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
-            await answer_one(message, pool, settings, llm, tg_id, question)
+            await message.answer(texts["queue"])
+        async with slots:
+            await answer_one(message, pool, settings, llm, tg_id, question, texts)
     finally:
         busy.discard(tg_id)
 
 
 async def answer_one(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None, tg_id: int,
-                     question: str) -> None:
+                     question: str, texts: dict[str, str] | None = None) -> None:
+    texts = texts or THINKING["uz"]
     with request_context() as rid:
         async with pool.acquire() as conn:
             user = await ensure_user(conn, tg_id)
@@ -704,22 +743,34 @@ async def answer_one(message: Message, pool: asyncpg.Pool, settings: Settings, l
             if not settings.is_admin(tg_id):
                 used = await questions_today(conn, tg_id, datetime.now(timezone.utc), settings.tz)
                 if used >= await user_limit(conn, user, settings):
-                    text = "Bugungi savollar limiti tugadi. Ertaga yana murojaat qiling yoki limitni oshiring: /obuna"
+                    text = texts["limit"]
                     await log_simple(conn, rid, tg_id, question, "limit_exceeded", text)
-                    await message.answer(text)
+                    await message.answer(text, parse_mode=ParseMode.HTML)
                     return
 
-            today = datetime.now(settings.tz).date()
-            previous = None
-            if is_followup(question, today):
-                previous = await last_question(conn, tg_id, datetime.now(timezone.utc))
-            asked = f"{previous} — {question}" if previous else question
-            if llm is None:
-                fa = await answer_without_llm(conn, asked, today, request_id=rid)
-            else:
-                fa = await answer_question(conn, llm, asked, today, request_id=rid, profile=user.profile)
-            fa.followup_of = previous
-            await log_conversation(conn, tg_id, question, fa)
+            placeholder = await message.answer(texts["start"])
+
+            async def progress(stage: str, n: int) -> None:
+                await placeholder.edit_text(texts[stage].format(n=n))
+
+            try:
+                today = datetime.now(settings.tz).date()
+                previous = None
+                if is_followup(question, today):
+                    previous = await last_question(conn, tg_id, datetime.now(timezone.utc))
+                asked = f"{previous} — {question}" if previous else question
+                if llm is None:
+                    fa = await answer_without_llm(conn, asked, today, request_id=rid)
+                else:
+                    fa = await answer_question(conn, llm, asked, today, request_id=rid, profile=user.profile,
+                                               progress=progress)
+                fa.followup_of = previous
+                await log_conversation(conn, tg_id, question, fa)
+            finally:
+                try:  # "O'ylayapman…" o'chiriladi — javob yangi xabar bo'lib keladi (bildirishnoma bilan)
+                    await placeholder.delete()
+                except Exception:
+                    log.warning("o'ylayapman xabari o'chirilmadi")
         await send_long(message, format_final_answer(fa), answer_keyboard(fa))
 
 

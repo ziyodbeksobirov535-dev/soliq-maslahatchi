@@ -11,7 +11,7 @@ import re
 
 from app.ai.prompts import SourceArticle
 from app.retrieval.articles import Article
-from app.services.answer import SOURCES_ONLY_TEXT, FinalAnswer
+from app.services.answer import RU_TEXTS, SOURCES_ONLY_TEXT, FinalAnswer
 
 TELEGRAM_LIMIT = 4096
 SAFE_LIMIT = 3900
@@ -21,6 +21,14 @@ STATUS_UZ = {
     "kuchga_kirmagan": "kuchga kirmagan",
     "kuchini_yoqotgan": "kuchini yo'qotgan",
     "noma'lum": "holati noma'lum",
+}
+
+
+STATUS_RU = {
+    "amalda": "действует",
+    "kuchga_kirmagan": "не вступил в силу",
+    "kuchini_yoqotgan": "утратил силу",
+    "noma'lum": "статус неизвестен",
 }
 
 
@@ -76,18 +84,19 @@ def format_notes(fa: FinalAnswer) -> list[str]:
         fixes = ", ".join(f"«{esc(a)}» → «{esc(b)}»" for a, b in fa.corrections.items())
         notes.append(f"✏️ Imlo tuzatildi: {fixes}")
     if fa.language == "ru":
-        notes.append("🔤 Savol rus tilida — atamalarni o'zbekchaga o'girib qidirdim, javob o'zbek tilida.")
+        notes.append("🔤 Вопрос на русском: искал по текстам законов на узбекском (Lex.uz), отвечаю на русском.")
     return [*notes, ""] if notes else []
 
 
 def format_sources_only(fa: FinalAnswer) -> str:
-    lines = [esc(SOURCES_ONLY_TEXT), ""]
+    ru = fa.language == "ru"
+    lines = [esc(RU_TEXTS[SOURCES_ONLY_TEXT] if ru else SOURCES_ONLY_TEXT), ""]
     for h in fa.hints:
         lines.append(f"📌 <b>{esc(h.document_name)}</b>, {link(h.link, h.title)}")
         if h.snippet:
             lines.append(f"<i>{esc(h.snippet)}</i>")
         lines.append("")
-    lines.append("To'liq matnni ko'rish uchun quyidagi tugmani bosing.")
+    lines.append("Полный текст — по кнопке ниже." if ru else "To'liq matnni ko'rish uchun quyidagi tugmani bosing.")
     return "\n".join(lines)
 
 
@@ -109,14 +118,16 @@ def _format_body(fa: FinalAnswer) -> str:
         return "\n".join(lines)
 
     answer_part = fa.text.split("\n*Huquqiy asos:*")[0]
-    lines = [md_to_html(answer_part.strip()), "", "<b>Huquqiy asos:</b>"]
+    ru = fa.language == "ru"
+    lines = [md_to_html(answer_part.strip()), "", "<b>Правовая основа:</b>" if ru else "<b>Huquqiy asos:</b>"]
     grouped: dict[str, list] = {}
     for c in fa.citations:
         grouped.setdefault(c.source.link, []).append(c)
     for url, cs in grouped.items():
         a: SourceArticle = cs[0].article
         claims = "; ".join(dict.fromkeys(c.claim for c in cs))
-        status = "" if a.document_status == "amalda" else f" ({esc(STATUS_UZ.get(a.document_status, a.document_status))})"
+        labels = STATUS_RU if ru else STATUS_UZ
+        status = "" if a.document_status == "amalda" else f" ({esc(labels.get(a.document_status, a.document_status))})"
         lines.append(f"• {esc(a.document_name)}, {link(url, a.title)}{status} — {esc(claims)}")
     return "\n".join(lines)
 

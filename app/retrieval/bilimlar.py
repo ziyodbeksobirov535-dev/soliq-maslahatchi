@@ -99,7 +99,11 @@ async def matching_records(conn: asyncpg.Connection, plan: QueryPlan, limit: int
                 SELECT b.record_key, b.topic, b.text, (SELECT count(*) FROM t WHERE b.search_vector @@ t.q) AS hits
                 FROM bilimlar b
                 WHERE b.turi = 'bilim' AND b.search_vector @@ to_tsquery('simple', array_to_string($1::text[], ' | ')))
-            SELECT * FROM b WHERE hits >= $2 ORDER BY hits DESC, record_key LIMIT $3
+            SELECT * FROM b WHERE hits >= $2
+            -- Lex.uz bilan tasdiqlangan yozuvlar birinchi (aks holda boshqa yozuvlar joyni egallab, PF-100 bandi
+            -- kontekstga kirmay qolgan — 2026-10-14 sinov)
+            ORDER BY (record_key LIKE 'skill:loyiha-tasdiqlangan-bilimlar.md#%') DESC, hits DESC, record_key
+            LIMIT $3
             """,
             ts, need, limit,
         )
@@ -169,3 +173,23 @@ async def knowledge_articles(conn: asyncpg.Connection, plan: QueryPlan, present:
             if article is not None:
                 out.append(article)
     return out
+
+
+VERIFIED_PREFIX = "skill:loyiha-tasdiqlangan-bilimlar.md#"
+MAX_NOTES = 3
+
+
+async def verified_notes(conn: asyncpg.Connection, plans: list[QueryPlan]) -> list[str]:
+    """Lex.uz bilan tasdiqlangan bilim yozuvlaridagi "Eslatma:" qatorlari — savolga (yoki AI so'rovlariga) mos
+    kelganda modelga beriladi. Manba emas: qaysi manba ustunligini ko'rsatadi ("kodeksda 1 mlrd, PF-100 bilan
+    12 000 BHM"). 2026-10-14 sinov: kuchsiz model kontekstdagi farmonni e'tiborsiz qoldirib, eski chegarani bergan."""
+    notes: list[str] = []
+    for plan in plans:
+        for record in await matching_records(conn, plan):
+            if not record["record_key"].startswith(VERIFIED_PREFIX):
+                continue
+            for line in record["text"].splitlines():
+                note = line.removeprefix("Eslatma:").strip()
+                if line.startswith("Eslatma:") and note not in notes and len(notes) < MAX_NOTES:
+                    notes.append(note)
+    return notes

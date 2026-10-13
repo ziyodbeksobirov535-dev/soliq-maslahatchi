@@ -18,6 +18,7 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -28,7 +29,7 @@ from app.ai.prompts import SourceArticle, SourceElement, render_user_message
 from app.ai.validation import ValidatedAnswer, validate_answer
 from app.retrieval.articles import Article, get_article, get_section
 from app.retrieval.query import analyze
-from app.retrieval.bilimlar import knowledge_articles
+from app.retrieval.bilimlar import knowledge_articles, verified_notes
 from app.retrieval.imtiyozlar import article_refs, find_benefits, is_benefit_question
 from app.retrieval.references import referenced_articles
 from app.retrieval.search import ArticleHit, SearchResult, retrieve, search_articles
@@ -50,6 +51,26 @@ CLARIFY_TEXT = (
 )
 ERROR_TEXT = "Kechirasiz, javob tayyorlashda texnik xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring."
 SOURCES_ONLY_TEXT = "Hozir to'liq javob tayyorlay olmadim, lekin savolingizga eng yaqin rasmiy manbalar:"
+# Ruscha savol — tizim matnlari ham rus tilida (buxgalterlar ko'pincha ruscha so'raydi); manbalar o'zbekcha Lex.uz.
+RU_TEXTS = {
+    INSUFFICIENT_TEXT: "На основании имеющихся официальных источников недостаточно данных для однозначного "
+                       "правового вывода по этому вопросу.",
+    CLARIFY_TEXT: "Уточните, пожалуйста, вопрос: о каком налоге, документе или ситуации речь? "
+                  "Например: «Какой порог для плательщика НДС?» или «Налоговый кодекс, статья 461».",
+    ERROR_TEXT: "Извините, при подготовке ответа произошла техническая ошибка. Попробуйте немного позже.",
+    SOURCES_ONLY_TEXT: "Сейчас не удалось подготовить полный ответ, но вот ближайшие официальные источники:",
+    "Aniqlashtirish kerak: ": "Нужно уточнить: ",
+    "Tekshirish uchun eng yaqin manbalar:": "Ближайшие источники для проверки:",
+}
+
+
+def localize(text: str, language: str) -> str:
+    """Tizim matnlari ruscha savolda — rus tilida (model javobi o'zi rus tilida yoziladi)."""
+    if language != "ru" or not text:
+        return text
+    for uz, ru in RU_TEXTS.items():
+        text = text.replace(uz, ru)
+    return text
 SOURCES_ONLY_LIMIT = 3
 SNIPPET_CHARS = 300
 
@@ -303,6 +324,11 @@ def sources_only(result: SearchResult, queries: list[str]) -> dict:
 
 def format_historical(result: SearchResult) -> str:
     d = result.plan.historical_date
+    if result.plan.language == "ru":
+        when = {"year": f"{d.year} год", "month": f"{d.month:02d}.{d.year}"}.get(result.plan.historical_precision or "",
+                                                                             d.strftime("%d.%m.%Y"))
+        return (f"Вы спрашиваете о норме по состоянию на {when}. Редакция документа за этот период ещё не загружена, "
+                "а ответ по действующему тексту может быть неверным. Спросите о текущей норме — отвечу.")
     when = {"year": f"{d.year}-yil", "month": f"{d.year}-yil {d.month}-oy"}.get(result.plan.historical_precision or "", d.isoformat())
     return (
         f"Siz {when} holatidagi normani so'rayapsiz. Bu davr uchun hujjat versiyasi hali tizimga yuklanmagan, "
@@ -319,12 +345,24 @@ async def answer_question(
     use_rewrite: bool = True,
     request_id: str | None = None,
     profile: dict | None = None,
+    progress: Callable[[str, int], Awaitable[None]] | None = None,
 ) -> FinalAnswer:
+    """progress(bosqich, son): "sources" — manbalar topildi (soni), javob yozilmoqda; "more" — qo'shimcha qidiruv.
+    Foydalanuvchiga "O'ylayapman…" xabarini yangilash uchun; xatosi javobga ta'sir qilmaydi."""
+
+    async def notify(stage: str, n: int = 0) -> None:
+        if progress is not None:
+            try:
+                await progress(stage, n)
+            except Exception:  # Telegram xatosi javobni to'xtatmasin
+                log.warning("progress xabari yangilanmadi stage=%s", stage)
+
     started = time.monotonic()
     rid = request_id or str(uuid.uuid4())
     usage = Usage()
 
     def done(**kw) -> FinalAnswer:
+        kw["text"] = localize(kw.get("text", ""), result.plan.language)
         fa = FinalAnswer(request_id=rid, usage=usage, corrections=result.corrections,
                          language=result.plan.language, **kw)
         fa.processing_ms = int((time.monotonic() - started) * 1000)
@@ -360,6 +398,8 @@ async def answer_question(
         articles += await benefit_sources(conn, result.plan, today, articles)
         articles += await knowledge_sources(conn, result.plan, articles)
         articles += await query_knowledge(conn, queries[1:], articles, today)
+        hints = await verified_notes(conn, [result.plan] + [analyze(q, today) for q in queries[1:]])
+        await notify("sources", len(articles))
 
         rounds = 0
         note = None
@@ -369,13 +409,14 @@ async def answer_question(
         removed: list[str] = []
         while True:
             # Sinxron SDK chaqiruvi alohida oqimda — bot boshqa foydalanuvchilarni kutdirmaydi.
-            message = render_user_message(question, articles, today, note, profile)
+            message = render_user_message(question, articles, today, note, profile, result.plan.language, hints)
             output = await asyncio.to_thread(llm.answer, message, usage)
             validated = validate_answer(output, articles)
             rejected += validated.rejected_source_ids
             removed += validated.removed_urls
 
             if validated.needs_more and rounds < MAX_EXTRA_ROUNDS:
+                await notify("more")
                 queries += validated.needs_more[:3]
                 new_sources = await round_sources(conn, validated.needs_more, articles, today)
                 rounds += 1
@@ -421,6 +462,7 @@ async def answer_without_llm(conn: asyncpg.Connection, question: str, today: dat
             if extra:  # imtiyoz savoli: ro'yxat ko'rsatgan moddalar ham (ko'pi bilan 2 ta qo'shimcha)
                 hints = (kw.get("hints") or [])[:SOURCES_ONLY_LIMIT] + extra[:2]
                 kw = dict(status="sources_only", text=format_sources_only(hints), hints=hints, search_queries=[question])
+    kw["text"] = localize(kw.get("text", ""), result.plan.language)
     fa = FinalAnswer(request_id=request_id or str(uuid.uuid4()), corrections=result.corrections,
                      language=result.plan.language, **kw)
     fa.processing_ms = int((time.monotonic() - started) * 1000)

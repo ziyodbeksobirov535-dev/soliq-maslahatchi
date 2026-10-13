@@ -710,3 +710,21 @@ matni hali o'zgartirilmagan.
   ustidan eski nusxa yozildi — qayta tiklandi (kalitlarga tegilmadi).
 - Testlar: 533 passed.
 
+### Bot ko'rib chiqildi: limit, "O'ylayapman", ruscha javob, tasdiqlangan eslatmalar (2026-10-14)
+- Kunlik limit: `.env` DAILY_QUESTION_LIMIT=2. Limitdan faqat AI to'liq ishlagan savollar yechiladi
+  (`answered`, `insufficient`); manbalar ro'yxati, "aniqlashtiring", "topilmadi", tarixiy — yechilmaydi.
+  Limit xabari: modda matni va kalkulyator limitsiz ekanini aytadi. /start va /obuna — limit soni bilan.
+- "Yozmoqda…" o'rniga "🤔 O'ylayapman…" xabari: bosqichma-bosqich yangilanadi ("N ta manba topildi — javob
+  yozilmoqda…", "qo'shimcha manbalar qidirilmoqda…"), javob kelgach o'chiriladi — javob yangi xabar (bildirishnoma).
+  `answer_question(progress=...)`.
+- Ruscha savol: javob rus tilida (`<javob_tili>rus</javob_tili>`, rasmiy atamalar: НДС, налог с оборота, БРВ…),
+  "Правовая основа", tizim matnlari (`RU_TEXTS`, `localize`), "Думаю…", navbat/band/limit xabarlari; manbalar —
+  o'zbekcha Lex.uz. /start — Telegram tili ruscha bo'lsa ruscha. Jonli: ta'til va QQS chegarasi — rus tilida, to'g'ri.
+- Tasdiqlangan eslatmalar: `loyiha-tasdiqlangan-bilimlar.md` dagi "Eslatma:" qatori mos savolda modelga
+  `<eslatma>` sifatida beriladi (manba emas, iqtibos qilinmaydi, SYSTEM_PROMPT 10-qoida); tasdiqlangan yozuvlar
+  bilim moslashuvida birinchi (aks holda boshqa yozuvlar joyni egallab PF-100 kontekstga kirmasdi va model
+  "PF-100 2-bandi" deb soxta iqtibos yozdi). Jonli: ruscha va o'zbekcha chegara savoli — 12 000 BHM, kodeksdagi
+  1 mlrd alohida qayd etilgan, iqtiboslar PF-100 II va 237, rad etilgan yo'q.
+- Gemini: zaxirasi bor model 45 s da javob bermasa — zaxiraga (qotib qolganda 140 s kutilgan edi).
+- Testlar: 537 passed.
+

@@ -56,7 +56,7 @@ class MockedSession(BaseSession):
             return ChatMemberMember(user=user) if method.user_id in self.members else ChatMemberLeft(user=user)
         if isinstance(method, SendMessage):
             return Message(message_id=len(self.requests), date=datetime.now(timezone.utc),
-                           chat=Chat(id=method.chat_id, type="private"), text=method.text)
+                           chat=Chat(id=method.chat_id, type="private"), text=method.text).as_(bot)
         return True
 
     async def stream_content(self, *args, **kwargs):  # pragma: no cover
@@ -64,7 +64,12 @@ class MockedSession(BaseSession):
 
     @property
     def sent(self) -> list[SendMessage]:
-        return [r for r in self.requests if isinstance(r, SendMessage)]
+        """Yuborilgan xabarlar ("O'ylayapman…" — alohida, `thinking`)."""
+        return [r for r in self.requests if isinstance(r, SendMessage) and not r.text.startswith("🤔")]
+
+    @property
+    def thinking(self) -> list[SendMessage]:
+        return [r for r in self.requests if isinstance(r, SendMessage) and r.text.startswith("🤔")]
 
 
 def update(user_id: int, text: str, n: int = 1) -> Update:
@@ -288,8 +293,10 @@ def test_profile_buttons(bot_db):
 def test_question_answered_with_sources_and_logged(bot_db):
     llm = FakeLLM(lambda msg, n: cite_first_text(msg))
     s = feed(bot_db, ["Soliq imtiyozidan foydalanish uchun qanday shartlar bor?"], user_id=4000, llm=llm)
-    chat_actions = [r for r in s.requests if type(r).__name__ == "SendChatAction"]
-    assert chat_actions  # "yozmoqda..." ko'rsatildi
+    assert s.thinking and s.thinking[0].text == "🤔 O'ylayapman…"  # "yozmoqda" o'rniga
+    edits = [r.text for r in s.requests if type(r).__name__ == "EditMessageText"]
+    assert any("manba topildi — javob yozilmoqda" in t for t in edits)  # bosqich yangilandi
+    assert any(type(r).__name__ == "DeleteMessage" for r in s.requests)  # javob kelgach o'chirildi
     text = s.sent[0].text
     assert "<b>Huquqiy asos:</b>" in text
     assert '<a href="https://lex.uz/docs/-4674902#' in text
@@ -532,7 +539,7 @@ def payment_update(user_id, payload, charge, amount=4900000, n=900):
 
 def test_obuna_free_and_contact(bot_db):
     text = feed(bot_db, ["/obuna"], user_id=7000, cfg=settings(payment_contact="@soliq_admin")).sent[0].text
-    assert "Bepul tarif — kuniga 20 ta savol" in text and "@soliq_admin" in text
+    assert "Bepul tarif — kuniga 20 ta to'liq javob" in text and "@soliq_admin" in text
 
 
 def test_obuna_invoice_checkout_and_payment(bot_db):
@@ -564,14 +571,36 @@ def test_obuna_invoice_checkout_and_payment(bot_db):
 
 def test_admin_grants_and_revokes_premium_and_limit_follows(bot_db):
     cfg = settings(daily_question_limit=1)
+    llm = FakeLLM(lambda msg, n: cite_first_text(msg))  # limitdan faqat AI javoblari yechiladi
     assert "faqat adminlar" in feed(bot_db, ["/obuna_ber 7200 30"], user_id=USER, cfg=cfg).sent[0].text
     s = feed(bot_db, ["/obuna_ber 7200 30"], user_id=ADMIN, cfg=cfg)
     assert "7200 uchun premium" in s.sent[0].text
-    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Jarima qanday hisoblanadi?"], user_id=7200, cfg=cfg)
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari qanday?", "Soliq imtiyozlari shartlari?"], user_id=7200, cfg=cfg,
+             llm=llm)
     assert not any("limiti tugadi" in m.text for m in s.sent)  # premium: 100 ta
     feed(bot_db, ["/obuna_ol 7200"], user_id=ADMIN, cfg=cfg)
-    s = feed(bot_db, ["QQS stavkasi qancha?"], user_id=7200, cfg=cfg)
+    s = feed(bot_db, ["QQS stavkasi qancha?"], user_id=7200, cfg=cfg, llm=llm)
     assert "limiti tugadi" in s.sent[0].text and "/obuna" in s.sent[0].text
+
+
+def test_sources_only_answers_do_not_use_daily_limit(bot_db):
+    """AI ishlamay faqat manbalar ko'rsatilgan savol limitdan yechilmaydi (kunlik limit kichik — 2)."""
+    cfg = settings(daily_question_limit=1)
+    s = feed(bot_db, ["Soliq imtiyozlari shartlari?", "Soliq imtiyozlari shartlari?"], user_id=7250, cfg=cfg)
+    assert not any("limiti tugadi" in m.text for m in s.sent)
+
+
+def test_russian_question_gets_russian_texts(bot_db):
+    def respond(msg, n):
+        assert "<javob_tili>rus</javob_tili>" in msg  # model rus tilida yozadi
+        out = cite_first_text(msg)
+        out.answer_markdown = "Ставка НДС — 12%."
+        return out
+
+    s = feed(bot_db, ["Какие льготы по налогам?"], user_id=7260, llm=FakeLLM(respond))
+    assert s.thinking[0].text == "🤔 Думаю…"
+    text = s.sent[0].text
+    assert "<b>Правовая основа:</b>" in text and "Вопрос на русском" in text and "Ставка НДС" in text
 
 
 def test_payment_is_not_blocked_by_channel_gate(bot_db):
@@ -647,3 +676,13 @@ def test_questions_over_limit_wait_in_queue(bot_db):
     texts = [m.text for m in s.sent]
     assert QUEUE_TEXT in texts  # ikkinchisi navbatda
     assert sum("JAVOB:" in t for t in texts) == 2  # ikkalasi ham javob oldi
+
+
+def test_start_text_follows_telegram_language(bot_db):
+    base = update(7270, "/start")
+    user = base.message.from_user.model_copy(update={"language_code": "ru"})
+    upd = base.model_copy(update={"message": base.message.model_copy(update={"from_user": user})})
+    s = feed(bot_db, [upd], user_id=7270, cfg=settings(daily_question_limit=2))
+    assert s.sent[0].text.startswith("Здравствуйте") and "<b>2</b>" in s.sent[0].text
+    s = feed(bot_db, ["/start"], user_id=7271, cfg=settings(daily_question_limit=2))
+    assert s.sent[0].text.startswith("Assalomu alaykum") and "<b>2 ta</b>" in s.sent[0].text

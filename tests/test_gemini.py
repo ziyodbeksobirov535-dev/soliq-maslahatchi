@@ -100,3 +100,14 @@ def test_make_llm_selects_gemini():
     from app.bot.app import make_llm
 
     assert isinstance(make_llm(settings()), GeminiLLM)
+
+
+def test_hanging_model_falls_back_to_next():
+    def handler(req, n):
+        if "katta" in req.url.path:
+            raise httpx.ReadTimeout("qotib qoldi", request=req)
+        return ok(json.dumps(ANSWER))
+
+    llm, calls = make(handler)
+    assert llm.answer("savol", Usage()).confidence == "high"
+    assert calls[-1][0].endswith("kichik-lite:generateContent")

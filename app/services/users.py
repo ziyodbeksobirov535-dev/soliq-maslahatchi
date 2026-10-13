@@ -79,7 +79,8 @@ async def questions_today(conn: asyncpg.Connection, telegram_id: int, now: datet
         """
         SELECT count(*) FROM suhbatlar
         WHERE telegram_id = $1 AND created_at >= $2 AND created_at < $3
-          AND coalesce(status, '') NOT IN ('limit_exceeded', 'error', 'unavailable')
+          AND status IN ('answered', 'insufficient')  -- faqat AI to'liq ishlagan savollar (manbalar ro'yxati,
+                                                       -- "aniqlashtiring", "topilmadi" — limitdan yechilmaydi)
         """,
         telegram_id, start, start + timedelta(days=1),
     )

@@ -39,6 +39,7 @@ from app.config import Settings
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+FALLBACK_TIMEOUT_SECONDS = 45.0  # zaxirasi bor model uchun (asosiy Flash band paytda qotib qoladi)
 BLOCKED = frozenset({"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"})
 
 
@@ -57,11 +58,12 @@ class GeminiLLM:
         )
         self._json_schema_ok = True
 
-    def _post_one(self, model: str, payload: dict[str, Any], retries: int) -> httpx.Response:
+    def _post_one(self, model: str, payload: dict[str, Any], retries: int,
+                  timeout: float = TIMEOUT_SECONDS) -> httpx.Response:
         url = f"{self.base_url}/models/{model}:generateContent"
         for attempt in range(retries):
             try:
-                response = self._client.post(url, json=payload)
+                response = self._client.post(url, json=payload, timeout=httpx.Timeout(timeout, connect=15.0))
             except httpx.HTTPError as exc:
                 if attempt == retries - 1:
                     raise LLMError("AI API'ga ulanib bo'lmadi") from exc
@@ -77,7 +79,14 @@ class GeminiLLM:
         tez-tez "high demand" qaytaradi). Zaxira bor bo'lsa, har model bir marta qayta urinadi."""
         for i, model in enumerate(models):
             last = i == len(models) - 1
-            response = self._post_one(model, payload, RETRIES if last else 1)
+            try:  # zaxirasi bor model qotib qolsa — uzoq kutmasdan keyingisiga
+                response = self._post_one(model, payload, RETRIES if last else 1,
+                                          TIMEOUT_SECONDS if last else FALLBACK_TIMEOUT_SECONDS)
+            except LLMError:
+                if last:
+                    raise
+                log.warning("gemini model=%s javob bermadi — zaxira modelga o'tiladi", model)
+                continue
             if last or response.status_code not in RETRY_STATUSES:
                 return model, response
             log.warning("gemini model=%s status=%s — zaxira modelga o'tiladi", model, response.status_code)
