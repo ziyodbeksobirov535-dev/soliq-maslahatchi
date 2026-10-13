@@ -28,6 +28,7 @@ from app.ai.prompts import SourceArticle, SourceElement, render_user_message
 from app.ai.validation import ValidatedAnswer, validate_answer
 from app.retrieval.articles import Article, get_article, get_section
 from app.retrieval.query import analyze
+from app.retrieval.imtiyozlar import article_refs, find_benefits, is_benefit_question
 from app.retrieval.references import referenced_articles
 from app.retrieval.search import ArticleHit, SearchResult, retrieve, search_articles
 
@@ -145,6 +146,27 @@ async def referenced_sources(conn: asyncpg.Connection, articles: list[SourceArti
         first.append((a.lex_id, a.modda_raqami, matched.get((a.lex_id, unit), [])))
         rest.append((a.lex_id, a.modda_raqami, [e.text for e in a.all_elements()]))
     return [article_to_source(r) for r in await referenced_articles(conn, first + rest)]
+
+
+async def benefit_articles(conn: asyncpg.Connection, plan, today: date,
+                           present: set[tuple[str, str]]) -> list[Article]:
+    """Imtiyoz savoli: rasmiy ro'yxatdagi mos bandlar ko'rsatgan moddalar (bazadan, Lex.uz matni)."""
+    if not is_benefit_question(plan):
+        return []
+    out = []
+    for lex_id, modda in article_refs(await find_benefits(conn, plan, today)):
+        if (lex_id, modda) in present:
+            continue
+        article = await get_article(conn, modda, lex_id)
+        if article is not None:
+            out.append(article)
+    return out
+
+
+async def benefit_sources(conn: asyncpg.Connection, plan, today: date,
+                          articles: list[SourceArticle]) -> list[SourceArticle]:
+    present = {(a.lex_id, a.modda_raqami) for a in articles if a.modda_raqami}
+    return [article_to_source(a) for a in await benefit_articles(conn, plan, today, present)]
 
 
 def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
@@ -303,6 +325,7 @@ async def answer_question(
         if not articles:
             return done(status="not_found", text=format_insufficient([], []), search_queries=queries)
         articles += await referenced_sources(conn, articles, hits)
+        articles += await benefit_sources(conn, result.plan, today, articles)
 
         rounds = 0
         note = None
@@ -362,6 +385,12 @@ async def answer_without_llm(conn: asyncpg.Connection, question: str, today: dat
         kw = dict(status="historical_unavailable", text=format_historical(result))
     else:
         kw = sources_only(result, [question])
+        if kw["status"] in ("sources_only", "not_found"):
+            present = {(h.lex_id, h.unit[1]) for h in kw.get("hints", []) if h.unit[0] == "m"}
+            extra = [hint_from_article(a) for a in await benefit_articles(conn, result.plan, today, present)]
+            if extra:  # imtiyoz savoli: ro'yxat ko'rsatgan moddalar ham (ko'pi bilan 2 ta qo'shimcha)
+                hints = (kw.get("hints") or [])[:SOURCES_ONLY_LIMIT] + extra[:2]
+                kw = dict(status="sources_only", text=format_sources_only(hints), hints=hints, search_queries=[question])
     fa = FinalAnswer(request_id=request_id or str(uuid.uuid4()), corrections=result.corrections,
                      language=result.plan.language, **kw)
     fa.processing_ms = int((time.monotonic() - started) * 1000)
