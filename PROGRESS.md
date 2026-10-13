@@ -657,3 +657,23 @@ Foydalanuvchi so'rovi: Anthropic kreditisiz sinash uchun bepul API.
   mahsulotlarini yaxshilashda ishlatilishi mumkin — sinov uchun, shaxsiy ma'lumotsiz.
 - Testlar: 515 passed (soxta HTTP bilan 10 ta yangi test).
 
+### Gemini bilan jonli sinov va bir vaqtdagi foydalanuvchilar (2026-10-14)
+- Foydalanuvchi AI Studio kalitini `.env` ga qo'shdi. Yangi formatdagi kalitni OpenAI-mos manzil
+  (`Authorization: Bearer`) qabul qilmaydi ("Missing or invalid Authorization header") → `app/ai/gemini.py`:
+  Gemini'ning o'z API'si (`generateContent`, `x-goog-api-key`), `responseJsonSchema` (rad etilsa — sxema
+  promptda), fikrlash qismlari (`thought`) tashlanadi, SAFETY va boshqa bloklar → LLMRefusal. `LLM_PROVIDER=gemini`.
+- Bu Mac'da IPv6 ishlamaydi: httpx IPv6 da ~45 s kutib qoladi (curl IPv4 ga o'tadi) → Gemini mijozi IPv4 orqali.
+  (Diqqat: Anthropic SDK ham httpx — shu tarmoqda xuddi shunday kechikishi mumkin.)
+- Modellar: 2.5 flash/flash-lite yangi foydalanuvchilarga yopiq (404); 3.8/3.6-flash va flash-latest tez-tez
+  503 "high demand"; 3.1-flash-lite ~6 s. Zaxira modellar: `LLM_MAIN_MODEL=gemini-3.8-flash,gemini-3.1-flash-lite`
+  — band bo'lsa qayta urinmasdan keyingisiga. `LLM_FAST_MODEL=gemini-3.1-flash-lite`.
+- Jonli natija (Supabase + Gemini, to'liq zanjir): YaTT/aylanma 800 mln, mehnat ta'tili, ruscha mol-mulk solig'i —
+  hammasi `answered`, 4 tadan iqtibos, rad etilgan yo'q, 32–41 s (birinchi variant 122 s edi).
+- Bir vaqtdagi foydalanuvchilar: har update alohida vazifada, ma'lumotlari o'zida (request_id — ContextVar),
+  javob o'z chatiga — aralashmaydi. Qo'shildi: foydalanuvchi oldingi javobni kutayotganda ikkinchi savol qabul
+  qilinmaydi ("tayyorlanmoqda"); bir vaqtda `MAX_CONCURRENT_QUESTIONS` (4) savol, qolganlari navbatda (xabar bilan)
+  baza ulanishini band qilmay kutadi; `DB_POOL_MAX` 5 → 10; "yozmoqda…" javob tayyor bo'lguncha
+  (ChatActionSender). Testlar: 4 foydalanuvchi bir vaqtda — har biri o'z javobini, jurnal aralashmagan; bitta
+  foydalanuvchi ikki savol; navbat.
+- Testlar: 525 passed.
+

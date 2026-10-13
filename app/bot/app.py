@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -33,6 +35,10 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
     dp["pool"] = pool
     dp["settings"] = settings
     dp["llm"] = llm
+    # Bir vaqtdagi savollar: foydalanuvchi oldingi javobni kutayotgan bo'lsa — ikkinchisi qabul qilinmaydi;
+    # bir vaqtda ko'pi bilan max_concurrent_questions savol ishlanadi (AI limiti, baza ulanishlari).
+    dp["busy"] = set()
+    dp["slots"] = asyncio.Semaphore(settings.max_concurrent_questions)
     checker = MembershipChecker()
     dp["membership"] = checker
     gate = SubscriptionMiddleware(checker)
@@ -43,6 +49,14 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
 
 
 def make_llm(settings: Settings):
+    if settings.llm_provider == "gemini":
+        from app.ai.gemini import GeminiLLM
+
+        if not (settings.llm_api_key and settings.llm_main_model and settings.llm_fast_model):
+            log.warning("LLM_* sozlamalari to'liq emas — savol-javob o'chiq, /modda ishlaydi")
+            return None
+        log.info("LLM: gemini main=%s fast=%s", settings.llm_main_model, settings.llm_fast_model)
+        return GeminiLLM(settings)
     if settings.llm_provider == "openai_compat":
         from app.ai.openai_compat import OpenAICompatLLM
 
@@ -60,7 +74,7 @@ def make_llm(settings: Settings):
 
 async def run_bot(settings: Settings) -> None:
     settings.require("telegram_bot_token", "supabase_db_url")
-    pool = await create_pool(settings.supabase_db_url.get_secret_value())
+    pool = await create_pool(settings.supabase_db_url.get_secret_value(), max_size=settings.db_pool_max)
     bot = Bot(settings.telegram_bot_token.get_secret_value())
     try:
         llm = make_llm(settings)

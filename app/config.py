@@ -36,12 +36,16 @@ class Settings(BaseSettings):
     # Server-side refusal fallback: "default" yoki "off" (model qo'llamasa "off" qiling).
     anthropic_refusal_fallback: str = "default"
     # Boshqa provayder (sinov uchun bepul tariflar): OpenAI-mos API — Google Gemini, Groq, OpenRouter.
-    # LLM_PROVIDER=openai_compat bo'lsa shu sozlamalar ishlatiladi, aks holda Claude (ANTHROPIC_*).
-    llm_provider: Literal["anthropic", "openai_compat"] = "anthropic"
+    # LLM_PROVIDER=gemini (Google AI Studio kaliti) yoki openai_compat bo'lsa shu sozlamalar, aks holda Claude.
+    llm_provider: Literal["anthropic", "openai_compat", "gemini"] = "anthropic"
     llm_base_url: str | None = None  # masalan https://generativelanguage.googleapis.com/v1beta/openai
     llm_api_key: SecretStr | None = None
     llm_main_model: str | None = None
     llm_fast_model: str | None = None
+
+    # Bir vaqtda ishlanadigan savollar (qolganlari navbatda, baza ulanishini band qilmay kutadi) va ulanishlar soni.
+    max_concurrent_questions: int = Field(default=4, ge=1)
+    db_pool_max: int = Field(default=10, ge=2)
 
     supabase_url: str | None = None
     supabase_db_url: SecretStr | None = None

@@ -578,3 +578,72 @@ def test_payment_is_not_blocked_by_channel_gate(bot_db):
     s = feed(bot_db, [payment_update(7300, "premium:7300:30", "ch-gate", n=950)], user_id=7300,
              cfg=paid_cfg(required_channel="@soliq_kanal"))
     assert "To'lov qabul qilindi" in s.sent[0].text
+
+
+# --- bir vaqtda bir nechta foydalanuvchi ------------------------------------------------
+
+
+def feed_together(dsn, updates, *, llm=None, cfg=None):
+    """Update'larni bir vaqtda beradi (Telegram'dan bir paytda kelgandek) — har biri alohida vazifa."""
+    import asyncio
+
+    session = MockedSession()
+
+    async def go():
+        pool = await create_pool(dsn, min_size=1, max_size=3)
+        try:
+            bot = Bot(TOKEN, session=session)
+            dp = build_dispatcher(pool, cfg or settings(), llm)
+            await asyncio.gather(*(dp.feed_update(bot, u) for u in updates))
+        finally:
+            await pool.close()
+
+    run(go())
+    return session
+
+
+def echo_question_llm(delay=0.3):
+    """Javobga savol matnini qo'shadi (aralashuvni tekshirish uchun); sekin — so'rovlar ustma-ust tushadi."""
+    import re
+    import time
+
+    def respond(msg, n):
+        time.sleep(delay)
+        out = cite_first_text(msg)
+        out.answer_markdown = "JAVOB: " + re.search(r"<savol>(.*?)</savol>", msg, re.S).group(1)
+        return out
+
+    return FakeLLM(respond)
+
+
+def test_concurrent_users_get_their_own_answers(bot_db):
+    users = {7101: "Soliq imtiyozlari shartlari? birinchi", 7102: "Soliq imtiyozlari shartlari? ikkinchi",
+             7103: "Soliq imtiyozlari shartlari? uchinchi", 7104: "Soliq imtiyozlari shartlari? tortinchi"}
+    updates = [update(uid, text, n) for n, (uid, text) in enumerate(users.items(), 1)]
+    s = feed_together(bot_db, updates, llm=echo_question_llm(), cfg=settings(max_concurrent_questions=4))
+    for uid, text in users.items():
+        replies = [m.text for m in s.sent if m.chat_id == uid]
+        assert len(replies) == 1 and text.split()[-1] in replies[0]  # o'z savoliga javob
+        assert not any(other.split()[-1] in replies[0] for o, other in users.items() if o != uid)
+    rows = query(bot_db, "SELECT telegram_id, question FROM suhbatlar WHERE telegram_id = ANY($1::bigint[])",
+                 list(users))
+    assert {(r["telegram_id"], r["question"]) for r in rows} == set(users.items())  # jurnal ham aralashmagan
+
+
+def test_same_user_second_question_waits_for_first(bot_db):
+    from app.bot.handlers import BUSY_TEXT
+
+    updates = [update(7201, "Soliq imtiyozlari shartlari?", 1), update(7201, "Soliq imtiyozlari muddati?", 2)]
+    s = feed_together(bot_db, updates, llm=echo_question_llm())
+    texts = [m.text for m in s.sent if m.chat_id == 7201]
+    assert BUSY_TEXT in texts and sum("JAVOB:" in t for t in texts) == 1
+
+
+def test_questions_over_limit_wait_in_queue(bot_db):
+    from app.bot.handlers import QUEUE_TEXT
+
+    updates = [update(7301, "Soliq imtiyozlari shartlari? bir", 1), update(7302, "Soliq imtiyozlari shartlari? ikki", 2)]
+    s = feed_together(bot_db, updates, llm=echo_question_llm(), cfg=settings(max_concurrent_questions=1))
+    texts = [m.text for m in s.sent]
+    assert QUEUE_TEXT in texts  # ikkinchisi navbatda
+    assert sum("JAVOB:" in t for t in texts) == 2  # ikkalasi ham javob oldi

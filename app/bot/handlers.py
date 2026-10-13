@@ -14,6 +14,7 @@ Qulayliklar:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -22,7 +23,7 @@ from decimal import Decimal
 
 import asyncpg
 from aiogram import F, Router
-from aiogram.enums import ChatAction, ParseMode
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -36,6 +37,7 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
 )
+from aiogram.utils.chat_action import ChatActionSender
 
 from app.ai.client import LLM
 from app.bot.admin import admin_menu, negative_ratings, news_overview, unanswered
@@ -293,11 +295,12 @@ async def cmd_modda(message: Message, command: CommandObject, pool: asyncpg.Pool
 
 
 async def on_modda_number(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
-                          state: FSMContext) -> None:
+                          state: FSMContext, busy: set[int] | None = None,
+                          slots: asyncio.Semaphore | None = None) -> None:
     await state.clear()
     number, _ = parse_modda_args(message.text)
     if number is None:  # raqam emas — oddiy savol sifatida
-        await on_question(message, pool, settings, llm, state)
+        await on_question(message, pool, settings, llm, state, busy, slots)
         return
     await show_modda(message, pool, message.from_user.id, message.text)
 
@@ -396,14 +399,15 @@ async def on_calc_button(query: CallbackQuery, state: FSMContext) -> None:
 
 
 async def on_calc_value(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
-                        state: FSMContext) -> None:
+                        state: FSMContext, busy: set[int] | None = None,
+                        slots: asyncio.Semaphore | None = None) -> None:
     data = await state.get_data()
     result = kalkulyator.calculate(data.get("kind", ""), message.text or "", data.get("rate", "4"))
     if result is None:
         text = message.text or ""
         if "?" in text or len(re.findall(r"[a-z]{2,}", normalize(text))) >= 2:  # son emas, savol — savolga o'tamiz
             await state.clear()
-            await on_question(message, pool, settings, llm, state)
+            await on_question(message, pool, settings, llm, state, busy, slots)
             return
         await message.answer("Sonni tushunmadim. " + kalkulyator.PROMPTS[data.get("kind", "qqs_qosh")],
                              parse_mode=ParseMode.HTML)
@@ -656,18 +660,42 @@ async def on_non_text(message: Message) -> None:
 # --- oddiy savol -------------------------------------------------------------------------
 
 
+BUSY_TEXT = "⏳ Oldingi savolingizga javob tayyorlanmoqda — u kelgach, keyingi savolni yuboring."
+QUEUE_TEXT = "⏳ Hozir savollar ko'p — savolingiz navbatda, javob biroz kechroq keladi."
+
+
 async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
-                      state: FSMContext | None = None) -> None:
+                      state: FSMContext | None = None, busy: set[int] | None = None,
+                      slots: asyncio.Semaphore | None = None) -> None:
     tg_id = message.from_user.id
     question = message.text.strip()
     args = modda_only(question)
     if args is not None:
         await show_modda(message, pool, tg_id, args)
         return
+    if len(question) > MAX_QUESTION_CHARS:
+        await message.answer(f"Savol juda uzun. Iltimos, {MAX_QUESTION_CHARS} belgigacha qisqartiring.")
+        return
+    # Bitta foydalanuvchining savollari ketma-ket: ikkinchisi parallel ishlansa, javoblar va "davomiy savol"
+    # bog'lanishi chalkashadi. Har savol o'z vazifasida, o'z ma'lumotlari bilan — boshqa foydalanuvchiga aralashmaydi.
+    busy = busy if busy is not None else set()
+    if tg_id in busy:
+        await message.answer(BUSY_TEXT)
+        return
+    busy.add(tg_id)
+    try:
+        slots = slots or asyncio.Semaphore(1)
+        if slots.locked():
+            await message.answer(QUEUE_TEXT)
+        async with slots, ChatActionSender.typing(bot=message.bot, chat_id=message.chat.id):
+            await answer_one(message, pool, settings, llm, tg_id, question)
+    finally:
+        busy.discard(tg_id)
+
+
+async def answer_one(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None, tg_id: int,
+                     question: str) -> None:
     with request_context() as rid:
-        if len(question) > MAX_QUESTION_CHARS:
-            await message.answer(f"Savol juda uzun. Iltimos, {MAX_QUESTION_CHARS} belgigacha qisqartiring.")
-            return
         async with pool.acquire() as conn:
             user = await ensure_user(conn, tg_id)
             if not user.active:
@@ -681,7 +709,6 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
                     await message.answer(text)
                     return
 
-            await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
             today = datetime.now(settings.tz).date()
             previous = None
             if is_followup(question, today):
