@@ -73,6 +73,8 @@ RU_MARKERS = frozenset(
 )
 
 # Savol so'zlari, bog'lovchilar, olmoshlar va juda umumiy fe'llar (normallashtirilgan shaklda).
+# So'zlashuv so'zlari ("menga", "to'g'ri keladi", "hammasini tushuntir", "soliq yuki") — qonun matnida
+# deyarli uchramaydi; qidiruvga qo'shilsa kerakli moddaning qamrovi (MIN_COVERAGE) tushib ketadi (2026-10-13 sinov).
 # "kanday", "kachon"... — rus klaviaturasida kirillcha yozilgan "қандай", "қачон" (қ o'rniga к).
 STOPWORDS = frozenset(
     """
@@ -82,6 +84,10 @@ STOPWORDS = frozenset(
     qilish qiladi qilinadi qilib qilgan bolsa boladi bolgan bolishi mumkin mumkinmi
     edi ekan emish haqida boyicha deb dan ga da ni ning
     kanday kanaka kachon kancha kaysi kayer kayerda kayerga
+    menga menda mendan meni menimcha sizga sizda sizdan sizni bizga bizda bizdan bizni unga unda undan uni
+    ularga hammasi hammasini barchasi togri keladi kelamiz tushuntir tushuntiring tushuntirib ber bering
+    ayting aytib aytsangiz iltimos rahmat salom assalomu alaykum yordam bilmoqchiman bilaman xohlayman
+    istayman qilaman qilamiz yuki
     """.split()
 )
 
@@ -104,6 +110,8 @@ SUFFIXES = (
     "chining", "chidan", "chida", "chiga", "chini",
     "sining", "sidan", "sida", "siga", "sini", "ining", "idan", "ida", "iga", "ini",
     "ning", "dagi", "dan", "tan", "da", "ga", "ka", "qa", "ni", "si",
+    # 1-shaxs fe'l qo'shimchalari: "yuritaman", "to'layman", "olamiz" (so'zlashuv savollari)
+    "aymiz", "ayman", "amiz", "aman", "ymiz", "yman",
     "anadi", "iladi", "ladi", "adi", "ydi", "ilgan", "gan", "ib",
     "chilar", "chi", "lik", "i",
 )

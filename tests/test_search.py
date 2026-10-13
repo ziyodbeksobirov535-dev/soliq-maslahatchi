@@ -402,3 +402,27 @@ def lexuz_document(doc_id, name, elements):
     return lexuz.Document(doc_id=doc_id, url=lexuz.doc_url(doc_id), title=name, name=name, number=None,
                           adoption_date=None, effective_date=None, header_label=None, version=None, versions=[],
                           elements=elements)
+
+
+# --- so'zlashuv savollari (2026-10-13 sinov) --------------------------------------------------
+
+
+@pytest.mark.parametrize("word,expected", [("yuritaman", "yurit"), ("tolayman", "tola"), ("ishlayman", "ishl"),
+                                           ("tolaymiz", "tola"), ("saqlash", "saqla")])
+def test_first_person_verb_endings_are_stripped(word, expected):
+    assert stem(word) == expected
+
+
+def test_conversational_words_are_not_search_terms():
+    plan = analyze("qishloq xojaligi faoliyatini yuritaman menga qaysi soliq rejimi togri keladi va qanday soliq "
+                   "yuki bor menda hammasini tushuntir", TODAY)
+    assert plan.terms == ["qishlo", "xojali", "faoliyat", "yurit", "soli", "rejim"]
+
+
+def test_needs_more_slots_are_shared_between_queries():
+    from app.services.answer import pick_new_hits
+
+    a = [_hit("-1", modda="1"), _hit("-1", modda="2"), _hit("-1", modda="3")]
+    b = [_hit("-2", modda="7"), _hit("-2", modda="8")]
+    picked = pick_new_hits([a, b], present={("-1", "m", "2")}, limit=3)
+    assert [(h.lex_id, h.modda_raqami) for h in picked] == [("-1", "1"), ("-2", "7"), ("-2", "8")]

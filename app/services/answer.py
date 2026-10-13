@@ -133,6 +133,22 @@ async def _articles_from_hits(conn: asyncpg.Connection, hits: list[ArticleHit]) 
     return out
 
 
+def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
+    """needs_more raundi: har so'rovdan navbat bilan (avval har birining eng yaxshisi), mavjud manbalarsiz.
+    Birinchi so'rov hamma o'rinni egallab, keyingi so'rovlar bo'sh qolmasin (2026-10-13 sinov: "aylanma
+    stavkalari" uchala o'rinni olib, "foyda solig'i stavkalari" bo'yicha 337-modda kirmay qoldi)."""
+    picked: list[ArticleHit] = []
+    seen = set(present)
+    for rank in range(max((len(g) for g in groups), default=0)):
+        for g in groups:
+            if rank < len(g) and len(picked) < limit:
+                key = (g[rank].lex_id, *g[rank].unit_key)
+                if key not in seen:
+                    seen.add(key)
+                    picked.append(g[rank])
+    return picked
+
+
 def _merge_hits(groups: list[list[ArticleHit]], limit: int) -> list[ArticleHit]:
     best: dict[tuple[str, tuple[str, str]], ArticleHit] = {}
     for hits in groups:
@@ -288,13 +304,11 @@ async def answer_question(
 
             if validated.needs_more and rounds < MAX_EXTRA_ROUNDS:
                 present = {(a.lex_id, *a.key[1:]) for a in articles}
-                new_hits: list[ArticleHit] = []
+                groups = []
                 for q in validated.needs_more[:3]:
                     queries.append(q)
-                    for h in await _search_text(conn, q, today, None):
-                        if (h.lex_id, *h.unit_key) not in present and len(new_hits) < EXTRA_PER_ROUND:
-                            present.add((h.lex_id, *h.unit_key))
-                            new_hits.append(h)
+                    groups.append(await _search_text(conn, q, today, None))
+                new_hits = pick_new_hits(groups, present, EXTRA_PER_ROUND)
                 rounds += 1
                 if new_hits:
                     articles += await _articles_from_hits(conn, new_hits)

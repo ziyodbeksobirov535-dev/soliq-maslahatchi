@@ -490,3 +490,14 @@ Hujjat havolasi emas — tahlil qilingan qisqa yangilik xabari obunachilarga yub
 - `scripts/sinov_javob.py` — API kalitsiz savol-javob sinovi (bot qidiruvi va iqtibos tekshiruvi, javobni tashqi model yozadi).
 - Testlar: 430 passed.
 - Kuzatuv: Mac'dan Supabase pooler'ga ulanishda vaqti-vaqti bilan TLS timeout (qayta urinishda ulanadi).
+
+### Sinov (API kalitsiz, 2026-10-13) — topilgan va tuzatilgan muammolar
+- Savol: "qishloq xo'jaligi... qaysi soliq rejimi... soliq yuki" (`scripts/sinov_javob.py`: botning qidiruvi va
+  iqtibos tekshiruvi, javobni Claude Code yozdi). 16 iqtibos — hammasi to'g'ri.
+- [x] Imlo tuzatish so'zlashuv so'zlarini buzardi ("yuritaman" → "yuritgan", "menda" → "menga") → 1-shaxs fe'l
+      qo'shimchalari (-aman, -ayman, -amiz...) o'zakdan kesiladi; olmoshlar va so'zlashuv so'zlari (menga, to'g'ri
+      keladi, hammasini tushuntir, soliq yuki...) stop-so'z.
+- [x] AI'siz qidiruv shu savolda tegishli manba topmasdi → endi 57-modda (qishloq xo'jaligi tovar ishlab chiqaruvchilari).
+- [x] needs_more raundi: o'rinlar so'rovlar o'rtasida navbat bilan (`answer.pick_new_hits`) — avval birinchi so'rov
+      3 o'rinni egallab, "foyda solig'i stavkalari" bo'yicha 337-modda kirmasdi.
+- Regressiya yo'q: kodeks savollari top-1/3/6 = 6/8/10, qaror savollari 7/7/7. Testlar: 433 passed.

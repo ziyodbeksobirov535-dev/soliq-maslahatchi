@@ -1,16 +1,19 @@
 """Savol-javobni API kalitsiz sinash: botning qidiruvi va tekshiruvi, javobni esa tashqi model (masalan, Claude Code
 sessiyasidagi Claude) yozadi.
 
-    1) python scripts/sinov_javob.py kontekst "QQS stavkasi qancha?"
+    1) python scripts/sinov_javob.py kontekst "QQS stavkasi qancha?" ["qo'shimcha so'rov" ...]
+       (qo'shimcha so'rovlar — botdagi fast model `rewrite_queries` o'rnida, 2–4 ta rasmiy qidiruv so'rovi;
+        `--kerak q1 q2 ...` dan keyingilari — model `needs_more` qaytarganda botdagi qo'shimcha qidiruv raundi:
+        har biri bo'yicha yangi manbalar, raundga ko'pi bilan 3 ta)
        → botning qidiruvi (imlo, kirill/rus, davomiy savol yo'q) va Claude'ga beriladigan xabar
          .cache/sinov/kontekst.txt ga yoziladi; ekranga manbalar ro'yxati.
     2) Model kontekst bo'yicha AnswerOutput JSON yozadi: .cache/sinov/javob.json
        {"answer_markdown": "...", "citations": [{"source_id": "EL-123", "claim": "..."}],
         "needs_more": [], "confidence": "high"}
-    3) python scripts/sinov_javob.py javob "QQS stavkasi qancha?"
+    3) python scripts/sinov_javob.py javob "QQS stavkasi qancha?" ["qo'shimcha so'rov" ...]  (1-qadamdagidek)
        → botning iqtibos tekshiruvi (validate_answer) va Telegram formatidagi yakuniy javob.
 
-Bazaga yozmaydi (suhbatlar jurnali yo'q). Fast-model so'rov kengaytirish (rewrite_queries) ishlatilmaydi.
+Bazaga yozmaydi (suhbatlar jurnali yo'q). Qo'shimcha so'rovlar bo'yicha natijalar botdagidek birlashtiriladi.
 """
 
 from __future__ import annotations
@@ -35,21 +38,30 @@ from app.services.answer import (  # noqa: E402
     MAX_SOURCES,
     FinalAnswer,
     _articles_from_hits,
+    EXTRA_PER_ROUND,
+    _merge_hits,
+    _search_text,
     article_to_source,
     format_answer,
+    pick_new_hits,
 )
 
 OUT = Path(__file__).resolve().parents[1] / ".cache" / "sinov"
 
 
-async def sources(conn, question: str):
+async def sources(conn, question: str, extra: list[str], needs_more: list[str] | None = None):
     settings = get_settings()
     today = datetime.now(settings.tz).date()
     result = await retrieve(conn, question, today, limit=MAX_SOURCES)
     if result.direct_article is not None:
         articles = [article_to_source(result.direct_article)]
     else:
-        articles = await _articles_from_hits(conn, result.hits)
+        groups = [result.hits] + [await _search_text(conn, q, today, result.plan.lex_ids) for q in extra]
+        articles = await _articles_from_hits(conn, _merge_hits(groups, MAX_SOURCES))
+        if needs_more:  # botdagidek: mavjud manbalarda yo'q birliklar, raundga ko'pi bilan EXTRA_PER_ROUND
+            present = {(a.lex_id, *a.key[1:]) for a in articles}
+            groups = [await _search_text(conn, q, today, None) for q in needs_more[:3]]
+            articles += await _articles_from_hits(conn, pick_new_hits(groups, present, EXTRA_PER_ROUND))
     return result, articles, today
 
 
@@ -59,17 +71,21 @@ def plain(html: str) -> str:
 
 
 async def main() -> None:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("kontekst", "javob"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("kontekst", "javob"):
         raise SystemExit(__doc__)
-    mode, question = sys.argv[1], sys.argv[2]
+    mode, question, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
+    extra, needs_more = (rest[: rest.index("--kerak")], rest[rest.index("--kerak") + 1:]) if "--kerak" in rest \
+        else (rest, [])
     OUT.mkdir(parents=True, exist_ok=True)
     conn = await connect(get_settings().supabase_db_url.get_secret_value())
     try:
-        result, articles, today = await sources(conn, question)
+        result, articles, today = await sources(conn, question, extra, needs_more)
     finally:
         await conn.close()
 
     if mode == "kontekst":
+        if result.status == "ok" and not articles:
+            result.status = "not_found"
         print(f"holat: {result.status}; til: {result.plan.language}; imlo: {result.corrections or '-'}; "
               f"qidiruv so'zlari: {result.plan.terms}")
         for a in articles:
