@@ -645,3 +645,15 @@ tuzatish, savolni aniq tushunish ("aborot" ni "axborot" deb tushunish kabi xatol
   Supabase'da (server tiklangach): "QQS stavkasi qancha?" 10,5 s → 0,9–2,9 s; "Aylanma solig'ini kimlar
   to'laydi?" 3,1 s → 1,3 s; 20 bo'lakli uzun savol 9,9 s → 3,0 s; natijalar eski funksiya bilan aynan bir xil.
 
+### Bepul AI provayder bilan sinash imkoniyati (2026-10-13)
+Foydalanuvchi so'rovi: Anthropic kreditisiz sinash uchun bepul API.
+- `app/ai/openai_compat.py` — OpenAI-mos API (Google Gemini, Groq, OpenRouter) uchun LLM: Claude bilan bir xil
+  interfeys va promptlar; json_schema structured output ($ref'lar ochilgan), provayder rad etsa json_object +
+  sxema promptda; javob Pydantic bilan tekshiriladi, iqtiboslar — `validate_answer` (provayderdan qat'i nazar);
+  429/5xx — 3 marta qayta urinish. `LLM_PROVIDER=openai_compat` + `LLM_BASE_URL`, `LLM_API_KEY`,
+  `LLM_MAIN_MODEL`, `LLM_FAST_MODEL` (.env.example). Kalit loglardan tozalanadi. `make_llm` va konsol vositasi
+  provayderni sozlamadan tanlaydi.
+- Tavsiya: Google AI Studio bepul kaliti (karta shart emas). Diqqat: bepul tarifda so'rovlar Google
+  mahsulotlarini yaxshilashda ishlatilishi mumkin — sinov uchun, shaxsiy ma'lumotsiz.
+- Testlar: 515 passed (soxta HTTP bilan 10 ta yangi test).
+

@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     anthropic_max_tokens: int = Field(default=16000, gt=0)
     # Server-side refusal fallback: "default" yoki "off" (model qo'llamasa "off" qiling).
     anthropic_refusal_fallback: str = "default"
+    # Boshqa provayder (sinov uchun bepul tariflar): OpenAI-mos API — Google Gemini, Groq, OpenRouter.
+    # LLM_PROVIDER=openai_compat bo'lsa shu sozlamalar ishlatiladi, aks holda Claude (ANTHROPIC_*).
+    llm_provider: Literal["anthropic", "openai_compat"] = "anthropic"
+    llm_base_url: str | None = None  # masalan https://generativelanguage.googleapis.com/v1beta/openai
+    llm_api_key: SecretStr | None = None
+    llm_main_model: str | None = None
+    llm_fast_model: str | None = None
 
     supabase_url: str | None = None
     supabase_db_url: SecretStr | None = None
@@ -84,6 +91,10 @@ class Settings(BaseSettings):
         "anthropic_main_model",
         "anthropic_fast_model",
         "anthropic_effort",
+        "llm_base_url",
+        "llm_api_key",
+        "llm_main_model",
+        "llm_fast_model",
         "supabase_url",
         "supabase_db_url",
         "supabase_service_role_key",
@@ -145,6 +156,7 @@ class Settings(BaseSettings):
         secrets = (
             self.telegram_bot_token,
             self.anthropic_api_key,
+            self.llm_api_key,
             self.supabase_db_url,
             self.supabase_service_role_key,
             self.payment_provider_token,

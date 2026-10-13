@@ -43,6 +43,15 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
 
 
 def make_llm(settings: Settings):
+    if settings.llm_provider == "openai_compat":
+        from app.ai.openai_compat import OpenAICompatLLM
+
+        if not (settings.llm_base_url and settings.llm_api_key and settings.llm_main_model and settings.llm_fast_model):
+            log.warning("LLM_* sozlamalari to'liq emas — savol-javob o'chiq, /modda ishlaydi")
+            return None
+        log.info("LLM: openai_compat %s main=%s fast=%s", settings.llm_base_url, settings.llm_main_model,
+                 settings.llm_fast_model)
+        return OpenAICompatLLM(settings)
     if settings.anthropic_api_key is None or not settings.anthropic_main_model or not settings.anthropic_fast_model:
         log.warning("ANTHROPIC sozlamalari to'liq emas — savol-javob o'chiq, /modda ishlaydi")
         return None

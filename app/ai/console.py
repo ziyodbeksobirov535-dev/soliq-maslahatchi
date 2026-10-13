@@ -1,6 +1,6 @@
 """PHASE 4 konsol testi: 5 savol → to'liq zanjir (retrieval → Claude → citation validation).
 
-    python -m app.ai.console                    # 5 ta savol, jonli Claude (ANTHROPIC_API_KEY kerak)
+    python -m app.ai.console                    # 5 ta savol, jonli model (ANTHROPIC_* yoki LLM_PROVIDER=openai_compat)
     python -m app.ai.console "savol matni"      # bitta savol
     python -m app.ai.console --no-llm           # Claude'siz: faqat retrieval va kontekst hajmi
 
@@ -15,7 +15,6 @@ import json
 from datetime import date
 from pathlib import Path
 
-from app.ai.client import ClaudeLLM
 from app.ai.prompts import SYSTEM_PROMPT, render_user_message
 from app.config import get_settings
 from app.database.connection import connect
@@ -52,8 +51,12 @@ async def run_no_llm(dsn: str, questions: list[str], today: date) -> list[dict]:
 
 
 async def run_llm(dsn: str, questions: list[str], today: date) -> list[dict]:
+    from app.bot.app import make_llm
+
     settings = get_settings()
-    llm = ClaudeLLM(settings)
+    llm = make_llm(settings)
+    if llm is None:
+        raise SystemExit("AI sozlamalari to'liq emas (.env: ANTHROPIC_* yoki LLM_PROVIDER=openai_compat va LLM_*)")
     conn = await connect(dsn)
     out = []
     try:
