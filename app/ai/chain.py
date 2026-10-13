@@ -1,0 +1,51 @@
+"""Provayderlar zanjiri: asosiy provayder band, limiti tugagan yoki xato bersa — navbatdagisi.
+
+    LLM_PROVIDER=gemini            # asosiy
+    LLM_FALLBACKS=groq,openrouter  # zaxira, tartib bo'yicha
+
+Bepul tariflarda model tez-tez "band" (503) yoki daqiqalik limitga (429) tushadi — zanjir bilan javob kuchsizroq
+modelga yoki faqat manbalar ro'yxatiga tushib qolmaydi. Model javob berishdan bosh tortsa (LLMRefusal — xavfsizlik)
+— savol boshqa provayderga yuborilmaydi. Har bir provayderning javobi bir xil tekshiruvdan o'tadi
+(sxema — Pydantic, iqtiboslar — `validate_answer`).
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.ai.client import LLMError, LLMRefusal, Usage
+from app.ai.schemas import AnswerOutput, NewsClassification, NewsDigest
+
+log = logging.getLogger(__name__)
+
+
+class ChainLLM:
+    def __init__(self, providers: list[tuple[str, Any]]) -> None:
+        if not providers:
+            raise ValueError("ChainLLM: kamida bitta provayder kerak")
+        self.providers = providers
+
+    def _call(self, method: str, *args: Any) -> Any:
+        errors = []
+        for name, llm in self.providers:
+            try:
+                return getattr(llm, method)(*args)
+            except LLMRefusal:
+                raise
+            except LLMError as exc:
+                errors.append(f"{name}: {exc}")
+                log.warning("llm chain provider=%s method=%s xato=%s — navbatdagisi", name, method, exc)
+        raise LLMError("Barcha AI provayderlar javob bermadi (" + "; ".join(errors) + ")")
+
+    def rewrite_queries(self, question: str, usage: Usage) -> list[str]:
+        return self._call("rewrite_queries", question, usage)
+
+    def answer(self, user_message: str, usage: Usage) -> AnswerOutput:
+        return self._call("answer", user_message, usage)
+
+    def classify_news(self, title: str, meta: str, excerpt: str, usage: Usage) -> NewsClassification:
+        return self._call("classify_news", title, meta, excerpt, usage)
+
+    def news_digest(self, title: str, meta: str, elements: list[tuple[str, str]], usage: Usage) -> NewsDigest:
+        return self._call("news_digest", title, meta, elements, usage)

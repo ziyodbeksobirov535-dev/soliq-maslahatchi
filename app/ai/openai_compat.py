@@ -70,16 +70,30 @@ def parse_json(text: str, model: type[BaseModel]) -> BaseModel:
         raise LLMError(f"Model javobi sxemaga mos emas: {type(exc).__name__}") from exc
 
 
+# Zaxira provayderlarda javob uzunligi chegarasi (16 000 ayrim modellarning chegarasidan katta; javobga 2–4 ming yetadi).
+COMPAT_MAX_TOKENS = 8192
+
+
 class OpenAICompatLLM:
-    def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
-        settings.require("llm_base_url", "llm_api_key", "llm_main_model", "llm_fast_model")
-        self.base_url = settings.llm_base_url.rstrip("/")
-        self.main_model = settings.llm_main_model
-        self.fast_model = settings.llm_fast_model
-        self.max_tokens = settings.anthropic_max_tokens
+    def __init__(self, settings: Settings | None = None, client: httpx.Client | None = None, *,
+                 base_url: str | None = None, api_key: str | None = None, main_model: str | None = None,
+                 fast_model: str | None = None, name: str = "openai_compat") -> None:
+        """`settings` (LLM_* sozlamalari) yoki to'g'ridan-to'g'ri parametrlar (zanjirdagi Groq, OpenRouter)."""
+        if settings is not None:
+            settings.require("llm_base_url", "llm_api_key", "llm_main_model", "llm_fast_model")
+            base_url, api_key = settings.llm_base_url, settings.llm_api_key.get_secret_value()
+            main_model, fast_model = settings.llm_main_model, settings.llm_fast_model
+        if not (base_url and api_key and main_model and fast_model):
+            raise ValueError("OpenAICompatLLM: base_url, api_key, main_model, fast_model kerak")
+        self.name = name
+        self.base_url = base_url.rstrip("/")
+        self.main_model = main_model
+        self.fast_model = fast_model
+        self.max_tokens = COMPAT_MAX_TOKENS
         self._client = client or httpx.Client(
-            timeout=TIMEOUT_SECONDS,
-            headers={"Authorization": f"Bearer {settings.llm_api_key.get_secret_value()}"},
+            timeout=httpx.Timeout(TIMEOUT_SECONDS, connect=15.0),
+            transport=httpx.HTTPTransport(local_address="0.0.0.0", retries=1),  # IPv4 (gemini.py ga qarang)
+            headers={"Authorization": f"Bearer {api_key}"},
         )
         self._json_schema_ok = True  # provayder json_schema'ni rad etsa — json_object rejimiga o'tiladi
 

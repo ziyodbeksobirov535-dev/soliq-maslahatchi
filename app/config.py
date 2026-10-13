@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr | None = None
     llm_main_model: str | None = None
     llm_fast_model: str | None = None
+    # Zaxira provayderlar zanjiri (tartib bo'yicha): "groq,openrouter". Har biri o'z kaliti va modellari bilan.
+    llm_fallbacks: str = ""
+    groq_api_key: SecretStr | None = None
+    groq_main_model: str = "openai/gpt-oss-120b"
+    groq_fast_model: str = "openai/gpt-oss-20b"
+    openrouter_api_key: SecretStr | None = None
+    openrouter_main_model: str | None = None
+    openrouter_fast_model: str | None = None
 
     # Bir vaqtda ishlanadigan savollar (qolganlari navbatda, baza ulanishini band qilmay kutadi) va ulanishlar soni.
     max_concurrent_questions: int = Field(default=4, ge=1)
@@ -99,6 +107,10 @@ class Settings(BaseSettings):
         "llm_api_key",
         "llm_main_model",
         "llm_fast_model",
+        "groq_api_key",
+        "openrouter_api_key",
+        "openrouter_main_model",
+        "openrouter_fast_model",
         "supabase_url",
         "supabase_db_url",
         "supabase_service_role_key",
@@ -161,6 +173,8 @@ class Settings(BaseSettings):
             self.telegram_bot_token,
             self.anthropic_api_key,
             self.llm_api_key,
+            self.groq_api_key,
+            self.openrouter_api_key,
             self.supabase_db_url,
             self.supabase_service_role_key,
             self.payment_provider_token,

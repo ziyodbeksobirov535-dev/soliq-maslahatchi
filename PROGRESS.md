@@ -692,3 +692,11 @@ matni hali o'zgartirilmagan.
   Lite model kodeksdagi eski qiymatni alohida qayd etmadi (asosiy model band edi).
 - Testlar: 526 passed.
 
+### Provayderlar zanjiri (2026-10-14)
+- `app/ai/chain.py` — `ChainLLM`: asosiy provayder (LLM_PROVIDER) xato bersa (band, limit, ulanish, sxemaga mos
+  bo'lmagan javob) — `LLM_FALLBACKS` dagi navbatdagisi; LLMRefusal (xavfsizlik) boshqa provayderga o'tkazilmaydi.
+- Zaxiralar OpenAI-mos ulagich orqali: Groq (`GROQ_API_KEY`, sukut: openai/gpt-oss-120b / gpt-oss-20b),
+  OpenRouter (`OPENROUTER_API_KEY`, `OPENROUTER_MAIN_MODEL` — ":free" model). Ulagich endi IPv4 orqali,
+  javob chegarasi 8 192 token. Kalit yoki model berilmagan zaxira o'tkazib yuboriladi (logda ogohlantirish).
+- Testlar: 531 passed.
+
