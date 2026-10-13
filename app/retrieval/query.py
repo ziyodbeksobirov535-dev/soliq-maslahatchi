@@ -88,6 +88,8 @@ STOPWORDS = frozenset(
     ularga hammasi hammasini barchasi togri keladi kelamiz tushuntir tushuntiring tushuntirib ber bering
     ayting aytib aytsangiz iltimos rahmat salom assalomu alaykum yordam bilmoqchiman bilaman xohlayman
     istayman qilaman qilamiz yuki oyida yilda hozir ortacha kutilmoqda
+    kimlar kimga kimni kimning kimdan boladimi bolarmi bolsam bolsak qilsam qilsak
+    shugullanaman shugullanamiz shugullanadi
     """.split()
 )
 
@@ -113,8 +115,17 @@ SUFFIXES = (
     # 1-shaxs fe'l qo'shimchalari: "yuritaman", "to'layman", "olamiz" (so'zlashuv savollari)
     "aymiz", "ayman", "amiz", "aman", "ymiz", "yman",
     "anadi", "iladi", "ladi", "adi", "ydi", "ilgan", "gan", "ib",
-    "chilar", "chi", "lik", "i",
+    # shart mayli: "tanlasam", "to'lasak", "o'tkazsangiz" (qisqa o'zaklar — "o'tsam" — _SHORT_VERB_COND_RE da)
+    "sangiz", "sang", "sam", "sak",
+    "chilar", "chi", "lik",
+    "li",  # sifat: "foizli" → "foiz", "muddatli" → "muddat", "tegishli" → "tegish"
+    "i",
 )
+# So'roq yuklamasi fe'l/kesimdan keyin: "to'lanadimi", "berilganmi", "kerakmi" → "-mi" kesiladi.
+_QUESTION_PARTICLE_RE = re.compile(r"(adi|ydi|di|gan|moqda|mas|kerak)(mi|mikan)$")
+# Qisqa fe'l o'zagi + shart mayli ("o'tsam", "olsak", "sotsangiz") — o'zak MIN_STEM dan qisqa, qo'shimcha
+# kesilmaydi; harakat nomiga keltiriladi: "o'tsam" → "o'tish" (qonun matnidagi shakl).
+_SHORT_VERB_COND_RE = re.compile(r"\b(ot|ol|ber|kel|sot|och|yop|kir|qol)(sa|sam|sak|sang|sangiz)\b")
 MIN_STEM = 4
 BIGRAM_WEIGHT = 0.6
 # Soliq botida deyarli har savol va har bandda uchraydigan o'zaklar — ular bilan ibora tuzilmaydi
@@ -221,6 +232,9 @@ def stem(word: str) -> str:
 
     Oxiridagi q/g/k tushiriladi (soliq/solig'i → soli), shunda prefiks qidiruvi ikkalasini topadi.
     """
+    m = _QUESTION_PARTICLE_RE.search(word)
+    if m and len(word) - len(m.group(2)) >= MIN_STEM:
+        word = word[: -len(m.group(2))]
     w = _strip_suffixes(word)
     if w.endswith(("ash", "ish")) and len(w) - 2 >= MIN_STEM + 1:
         w = w[:-2]  # saqlash → saqla, topshirish → topshiri
@@ -366,6 +380,7 @@ def analyze(question: str, today: date) -> QueryPlan:
     norm = _LATIN_RU_RE.sub(lambda m: LATIN_RU_TERMS[m.group(1)], norm)
     for pattern, abbr in FULL_TAX_NAMES:
         norm = pattern.sub(abbr, norm)
+    norm = _SHORT_VERB_COND_RE.sub(r"\1ish", norm)
     plan = QueryPlan(question=question, normalized=norm, language="ru" if russian else "uz")
 
     m = _ARTICLE_RE.search(norm)

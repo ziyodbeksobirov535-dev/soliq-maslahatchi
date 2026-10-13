@@ -565,8 +565,25 @@ ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) baja
 - needs_more raundi (`round_sources`, bot va sinov skripti umumiy): qidiruvdagi yangi birliklar (≤3) + raund
   so'rovlariga mos bilim yozuvlari ishora qilgan manbalar (≤2). "soddalashtirilgan QQS 6 foiz" → PF-100 IV.
 - Ulgurji savdo savoli qayta: imlo xabari yo'q; 461, PF-100 II va IV, 258, 337, 483; 18 iqtibos to'g'ri.
-- Ochiq (alohida masala): qidiruv kam so'zga yuqori IDF bilan mos kelganni ko'p so'zga mos kelgandan yuqori
-  qo'yishi mumkin (338 Bojxona m6 > PF-100 II m13); so'z shakllari "tanlasam" (shart mayli), "bo'ladimi"
-  (-mi), "foizli" (-li) o'zakka keltirilmaydi; 2-raund bilim manbalari ba'zan shovqin (351, 5-modda).
-  "QQS ni kim to'laydi?" — 237-modda top-6 da yo'q (oldin ham).
 - Testlar: 470 passed.
+
+### Reyting va so'z shakllari (2026-10-13)
+O'lchov (Supabase, `retrieve`): 17 kodeks savoli (spec + QQS/JSHDS/aylanma) va 13 qaror savoli (7 eski + PF-100).
+Boshlang'ich: kodeks top-1/3/6 = 9/13/14, qaror 8/9/12. Yakuniy: kodeks 9/13/14 (o'zgarmadi), qaror **9/12/12**.
+- Reyting sababi (338 Bojxona > PF-100 II): xom ballda II ancha yuqori (≈5,0 / ≈2,9), lekin ierarxiya qoidasi
+  sarlavhaga qarab ×0.5 berardi ("Biznes o'sishini rag'batlantirish..." savol so'zlarini qamramaydi). Yangi qoida:
+  sarlavha mos kelmasa ham, bitta qisqa elementi (≤400 belgi) savol so'zlarining ≥75% ini qamragan bo'lim — ×1.0
+  (savolda ≥4 so'z bo'lsa; qisqa savolda "QQS stavkasi" bo'yicha 258 6-o'ringa tushardi; uzun elementlarsiz
+  qishloq xo'jaligi savolida kirish matnlari 437/429/436 ni siqib chiqargan edi).
+- Sarlavha qamrovida qisqartmaning to'liq nomi ("IV. Qo'shilgan qiymat solig'i bo'yicha soddalashtirilgan tartib")
+  sanaladi, faqat boshqa savol so'zi ham uchrasa ("QQS stavkasi" ↔ "QQS to'lovchilari reyestri" — sanalmaydi).
+- So'z shakllari: so'roq yuklamasi ("to'lanadimi", "berilganmi"), shart mayli ("tanlasam", "to'lasak",
+  "o'tkazsangiz"; qisqa o'zak "o'tsam/olsak/sotsangiz" → "o'tish/olish/sotish"), "-li" ("foizli" → "foiz");
+  stop-so'z: kimlar/kimga..., bo'ladimi, bo'lsam, qilsam, shug'ullanaman ("kimlar" imlo orqali "kitlar" bo'lardi).
+- Sinab ko'rilib olib tashlangan: "to'la → to'lov" juftligi (o'lchovda foydasi yo'q; umumiy "-la → -lov" qoidasi
+  "tanlasam → tanlov" kabi boshqa so'z berardi).
+- Ochiq: "Aylanma solig'ini kimlar to'laydi?" / "QQS ni kim to'laydi?" — 461/237 top-6 da yo'q: "aylanma" so'zi
+  (oborot) 243/268 da ko'p uchraydi; "kim to'laydi" ma'nosi ("soliq to'lovchilar" sarlavhasi) leksik qidiruvga
+  sig'maydi. 2-raund bilim manbalari ba'zan shovqin. "6 foizli QQSni tanlasam" — qidiruvda IV yo'q, bilim
+  yozuvi orqali kiradi.
+- Testlar: 482 passed.

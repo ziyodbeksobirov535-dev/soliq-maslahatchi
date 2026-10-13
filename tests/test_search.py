@@ -127,6 +127,22 @@ def test_possessive_base():
     assert possessive_base("stav") is None  # asos juda qisqa
 
 
+@pytest.mark.parametrize("word,expected", [
+    ("tolanadimi", "tolan"), ("berilganmi", "beril"),  # so'roq yuklamasi
+    ("tanlasam", "tanla"), ("tolasak", "tola"), ("otkazsangiz", "otkaz"),  # shart mayli
+    ("foizli", "foiz"), ("muddatli", "muddat"),  # -li
+    ("tizimi", "tizim"), ("majburiyati", "majburiyat"),  # "-mi"/"-li" bo'lmagan so'zlar o'zgarmaydi
+])
+def test_colloquial_word_forms(word, expected):
+    assert stem(word) == expected
+
+
+def test_colloquial_question_terms():
+    plan = analyze("Savdo bilan shug'ullanaman, soddalashtirilgan QQSga o'tsam bo'ladimi?", TODAY)
+    assert plan.terms == ["savdo", "soddalashtir", "qqs", "otish"]
+    assert analyze("Aylanma solig'ini kimlar to'laydi?", TODAY).terms == ["aylanma", "soli", "tola"]
+
+
 def test_current_year_is_not_historical():
     assert analyze("2026-yilda QQS stavkasi qancha?", TODAY).historical_date is None
 
@@ -391,6 +407,31 @@ def test_hierarchy_weight():
     assert hierarchy_weight(plan, _hit(birlik_nomi="2-ilova, 3-bob. Dori vositalarini realizatsiya qilishda "
                                                    "hisobvaraq-fakturalarni to'ldirish"), "Постановление",
                             "Qo'shilgan qiymat solig'i hisobvaraq-fakturalari") == ON_TOPIC_WEIGHT
+
+
+def test_section_matching_the_question_in_one_element_is_not_penalized():
+    """PF-100 II bo'limi: sarlavha boshqa ("Biznes o'sishini rag'batlantirish..."), lekin 2-band savolning hamma
+    so'zini qamraydi — ×0.5 emas, ×1.0. Qisqa savolda bu qoida ishlamaydi (har qaror bandi 2 so'zni qamraydi)."""
+    from dataclasses import replace
+
+    from app.retrieval.search import OFF_TOPIC_WEIGHT, MatchedElement, hierarchy_weight
+
+    band = MatchedElement("-8237064", "text", "2. 2026-yil 1-iyundan boshlab soliq solishning umumbelgilangan "
+                          "tartibiga o'tish uchun belgilangan chegaraviy miqdor bazaviy hisoblash miqdorining o'n "
+                          "ikki ming baravari etib belgilansin.", "https://lex.uz/docs/-8236831#-8237064", 1.0)
+    hit = replace(_hit(birlik_nomi="II. Biznes o'sishini rag'batlantirish va umumiy soliq rejimiga o'tishni "
+                                   "yumshatish", name="Kichik biznes subyektlarining o'sishi uchun"), matched=[band])
+    plan = analyze("umumbelgilangan tartibga o'tish chegaraviy miqdor bazaviy hisoblash miqdori", TODAY)
+    assert hierarchy_weight(plan, hit, "Указ", hit.document_name) == 1.0
+    assert hierarchy_weight(analyze("bazaviy miqdor", TODAY), hit, "Указ", hit.document_name) == OFF_TOPIC_WEIGHT
+
+
+def test_abbreviation_full_name_in_title_counts_only_with_another_word():
+    from app.retrieval.search import topic_coverage
+
+    title = "IV. Qo'shilgan qiymat solig'i bo'yicha soddalashtirilgan tartibni joriy etish"
+    assert topic_coverage(analyze("QQS soddalashtirilgan tartib", TODAY), title) == 1.0
+    assert topic_coverage(analyze("QQS stavkasi", TODAY), "11-bob. Qo'shilgan qiymat solig'i to'lovchilari") == 0.0
 
 
 def test_rerank_puts_code_article_above_off_topic_annex(sk_db):

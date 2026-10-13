@@ -28,7 +28,7 @@ from datetime import date
 import asyncpg
 
 from app.retrieval.articles import SOLIQ_KODEKSI_LEX_ID, Article, get_article
-from app.retrieval.query import QueryPlan, analyze, normalize
+from app.retrieval.query import ABBREVIATIONS, SYNONYMS, QueryPlan, analyze, normalize
 from app.retrieval.spelling import apply_fixes, suggest
 
 DEFAULT_LIMIT = 6
@@ -38,6 +38,12 @@ HIGH_LEVEL_TYPES = frozenset({"Кодекс", "Закон", "Kodeks", "Qonun"})
 ON_TOPIC_WEIGHT = 1.2
 OFF_TOPIC_WEIGHT = 0.5
 MIN_TOPIC_COVERAGE = 0.5
+# Sarlavha mos kelmasa ham, bitta elementi savol so'zlarining shuncha qismini qamragan bo'lim — jarimasiz (×1.0).
+# 2026-10-13: PF-100 II bo'limi ("Biznes o'sishini rag'batlantirish...") 2-bandi savolning 7 so'zidan 7 tasini
+# qamragan, lekin sarlavha bo'yicha ×0.5 olib, 6 so'zga mos Bojxona kodeksi 338-moddasidan pastga tushardi.
+MIN_ELEMENT_COVERAGE = 0.75
+MIN_ELEMENT_TERMS = 4  # qisqa savolda ("QQS stavkasi") har qaror bandi ikkala so'zni qamraydi — 258 6-o'ringa tushardi
+MAX_ELEMENT_CHARS = 400  # uzun kirish qismi yoki o'zgartirishlar ro'yxati so'zlarni tasodifan qamraydi
 _WORDS_RE = re.compile(r"[a-z0-9]+")
 # Modda savoldagi mazmunli so'zlarning kamida shuncha ulushini qamrashi kerak (aks holda tasodifiy moslik).
 MIN_COVERAGE = 0.5
@@ -132,12 +138,19 @@ async def search_articles(
 
 
 def topic_coverage(plan: QueryPlan, text: str) -> float:
-    """Savol so'zlarining (fe'l oilasi bilan) qancha qismi matndagi so'z boshida uchraydi."""
-    words = set(_WORDS_RE.findall(normalize(text or "")))
+    """Savol so'zlarining (fe'l oilasi bilan) qancha qismi matndagi so'z boshida uchraydi. Qisqartmaning to'liq nomi
+    ("IV. Qo'shilgan qiymat solig'i bo'yicha soddalashtirilgan tartib" — "qqs") faqat boshqa savol so'zi ham
+    uchraganda sanaladi: aks holda nomida QQS bor har qaror "QQS stavkasi" savoliga mos bo'lib qolardi."""
+    norm = normalize(text or "")
+    words = set(_WORDS_RE.findall(norm))
     terms = [[t, *plan.variants.get(t, [])] for t in plan.terms]
     if not terms or not words:
         return 0.0
-    return sum(any(w.startswith(f) for f in forms for w in words) for forms in terms) / len(terms)
+    plain = sum(any(w.startswith(f) for f in forms for w in words) for forms in terms)
+    by_name = sum(1 for forms in terms
+                  if forms[0] in ABBREVIATIONS and not any(w.startswith(forms[0]) for w in words)
+                  and any(name in norm for name in SYNONYMS.get(forms[0], ())))
+    return (plain + (by_name if plain else 0)) / len(terms)
 
 
 def hierarchy_weight(plan: QueryPlan, hit: ArticleHit, doc_type: str | None, doc_name: str | None) -> float:
@@ -145,7 +158,13 @@ def hierarchy_weight(plan: QueryPlan, hit: ArticleHit, doc_type: str | None, doc
         return 1.0
     unit_title = hit.birlik_nomi or hit.heading
     on_topic = max(topic_coverage(plan, doc_name or hit.document_name), topic_coverage(plan, unit_title))
-    return ON_TOPIC_WEIGHT if on_topic >= MIN_TOPIC_COVERAGE else OFF_TOPIC_WEIGHT
+    if on_topic >= MIN_TOPIC_COVERAGE:
+        return ON_TOPIC_WEIGHT
+    if len(plan.terms) >= MIN_ELEMENT_TERMS and any(
+            len(m.text) <= MAX_ELEMENT_CHARS and topic_coverage(plan, m.text) >= MIN_ELEMENT_COVERAGE
+            for m in hit.matched):
+        return 1.0
+    return OFF_TOPIC_WEIGHT
 
 
 async def rerank_by_hierarchy(conn: asyncpg.Connection, plan: QueryPlan, hits: list[ArticleHit],
