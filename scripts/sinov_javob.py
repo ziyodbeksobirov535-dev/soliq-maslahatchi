@@ -4,7 +4,8 @@ sessiyasidagi Claude) yozadi.
     1) python scripts/sinov_javob.py kontekst "QQS stavkasi qancha?" ["qo'shimcha so'rov" ...]
        (qo'shimcha so'rovlar — botdagi fast model `rewrite_queries` o'rnida, 2–4 ta rasmiy qidiruv so'rovi;
         `--kerak q1 q2 ...` dan keyingilari — model `needs_more` qaytarganda botdagi qo'shimcha qidiruv raundi:
-        har biri bo'yicha yangi manbalar, raundga ko'pi bilan 3 ta)
+        har biri bo'yicha yangi manbalar, raundga ko'pi bilan 3 ta; ikkinchi `--kerak` — ikkinchi raund, botdagidek
+        ko'pi bilan 2 raund)
        → botning qidiruvi (imlo, kirill/rus, davomiy savol yo'q) va Claude'ga beriladigan xabar
          .cache/sinov/kontekst.txt ga yoziladi; ekranga manbalar ro'yxati.
     2) Model kontekst bo'yicha AnswerOutput JSON yozadi: .cache/sinov/javob.json
@@ -39,6 +40,7 @@ from app.services.answer import (  # noqa: E402
     FinalAnswer,
     _articles_from_hits,
     EXTRA_PER_ROUND,
+    MAX_EXTRA_ROUNDS,
     _merge_hits,
     _search_text,
     article_to_source,
@@ -52,7 +54,7 @@ from app.services.answer import (  # noqa: E402
 OUT = Path(__file__).resolve().parents[1] / ".cache" / "sinov"
 
 
-async def sources(conn, question: str, extra: list[str], needs_more: list[str] | None = None):
+async def sources(conn, question: str, extra: list[str], rounds: list[list[str]] | None = None):
     settings = get_settings()
     today = datetime.now(settings.tz).date()
     result = await retrieve(conn, question, today, limit=MAX_SOURCES)
@@ -66,8 +68,8 @@ async def sources(conn, question: str, extra: list[str], needs_more: list[str] |
         articles += await referenced_sources(conn, articles, hits)  # botdagidek: havolalar zanjiri
         articles += await benefit_sources(conn, result.plan, today, articles)  # imtiyoz savoli: ro'yxatdan
         articles += await knowledge_sources(conn, result.plan, articles)  # skill bilimlari yo'naltirgan
-        if needs_more:  # botdagidek: mavjud manbalarda yo'q birliklar, raundga ko'pi bilan EXTRA_PER_ROUND
-            present = {(a.lex_id, *a.key[1:]) for a in articles}
+        for needs_more in (rounds or [])[:MAX_EXTRA_ROUNDS]:  # botdagidek: mavjud manbalarda yo'q birliklar,
+            present = {(a.lex_id, *a.key[1:]) for a in articles}  # raundga ko'pi bilan EXTRA_PER_ROUND
             groups = [await _search_text(conn, q, today, None) for q in needs_more[:3]]
             articles += await _articles_from_hits(conn, pick_new_hits(groups, present, EXTRA_PER_ROUND))
     return result, articles, today
@@ -82,12 +84,17 @@ async def main() -> None:
     if len(sys.argv) < 3 or sys.argv[1] not in ("kontekst", "javob"):
         raise SystemExit(__doc__)
     mode, question, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
-    extra, needs_more = (rest[: rest.index("--kerak")], rest[rest.index("--kerak") + 1:]) if "--kerak" in rest \
-        else (rest, [])
+    parts: list[list[str]] = [[]]  # birinchisi — qo'shimcha so'rovlar, keyingilari — needs_more raundlari
+    for arg in rest:
+        if arg == "--kerak":
+            parts.append([])
+        else:
+            parts[-1].append(arg)
+    extra, rounds = parts[0], parts[1:]
     OUT.mkdir(parents=True, exist_ok=True)
     conn = await connect(get_settings().supabase_db_url.get_secret_value())
     try:
-        result, articles, today = await sources(conn, question, extra, needs_more)
+        result, articles, today = await sources(conn, question, extra, rounds)
     finally:
         await conn.close()
 

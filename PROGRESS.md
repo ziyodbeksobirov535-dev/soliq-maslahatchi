@@ -538,3 +538,16 @@ ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) baja
 - Discovery: "biznes" qidiruvi qo'shildi.
 - Sinov (Supabase): "QQS to'lovchi bo'lish chegarasi qancha?" → 461-modda + PF-100 II bo'lim (2-band) va IV bo'lim (6%).
 - Testlar: 462 passed.
+
+### Sinov: ulgurji savdo savoli (2026-10-13)
+"Firmam 2026 yil may oyida ochilgan, ulgurji kabel savdosi, yillik aylanma 100 mlrd — qaysi rejim, qanday imtiyozlar?"
+- Xato: savoldagi "2026 yil may oyida ochilgan" tarixiy tahrir so'rovi deb olinib, bot javob bermasdi
+  (`historical_unavailable`). Tuzatildi: sanadan keyin (≤4 so'z) foydalanuvchi hodisasi ("ochilgan", "tashkil
+  etilgan", "ro'yxatdan o'tgan", "sotib olgan"...) bo'lsa — sana hisobga olinmaydi, keyingi sana tekshiriladi.
+- Xato: "aborot" → imlo "axborot" deb tuzatardi. Lotincha ruscha so'zlar: oborot/aborot/abarot → "aylanma".
+  So'zlashuv so'zlari stopword: oyida, yilda, hozir, ortacha, kutilmoqda.
+- `scripts/sinov_javob.py`: `--kerak` takrorlanadi — ikkinchi needs_more raundi (botdagidek ≤2).
+- Natija: 461 + PF-100 (2- va 5-band) + 258 (QQS 12%) + 337 (15%) + 483 (hududiy); 18 iqtibos, hammasi to'g'ri.
+- Ochiq: "qo'shilgan qiymat solig'i stavkasi" (to'liq ibora) 258-moddani topmaydi, "QQS stavkasi" topadi;
+  imlo "firmam" → "firma" (egalik qo'shimchasi) keraksiz tuzatish sifatida ko'rsatiladi.
+- Testlar: 467 passed.

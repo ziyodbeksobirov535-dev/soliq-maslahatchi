@@ -93,6 +93,25 @@ def test_historical_date_detection(question, expected_date, precision):
     assert plan.historical_precision == precision
 
 
+@pytest.mark.parametrize("question", [
+    "Firmam 2026 yil may oyida ochilgan, qanday imtiyozlar bor?",
+    "Korxona 2025-yilda tashkil etilgan, QQS to'lovchi bo'lishi kerakmi?",
+    "01.03.2025 da ro'yxatdan o'tgan YaTT qanday soliq to'laydi?",
+])
+def test_event_date_is_not_historical(question):
+    assert analyze(question, TODAY).historical_date is None  # foydalanuvchining o'z hodisasi, qonun tahriri emas
+
+
+def test_event_date_does_not_hide_requested_date():
+    plan = analyze("2025-yil mart oyida ochilgan firma 2024-yilda qanday soliq to'lagan edi?", TODAY)
+    assert plan.historical_date == date(2024, 12, 31)
+
+
+def test_latin_russian_turnover_word():
+    assert "aylanma" in analyze("yillik aborotim 100 mlrd", TODAY).terms
+    assert "aylanma" in analyze("oborot 5 mlrd bo'lsa QQS kerakmi", TODAY).terms
+
+
 def test_current_year_is_not_historical():
     assert analyze("2026-yilda QQS stavkasi qancha?", TODAY).historical_date is None
 

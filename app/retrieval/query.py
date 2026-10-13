@@ -87,7 +87,7 @@ STOPWORDS = frozenset(
     menga menda mendan meni menimcha sizga sizda sizdan sizni bizga bizda bizdan bizni unga unda undan uni
     ularga hammasi hammasini barchasi togri keladi kelamiz tushuntir tushuntiring tushuntirib ber bering
     ayting aytib aytsangiz iltimos rahmat salom assalomu alaykum yordam bilmoqchiman bilaman xohlayman
-    istayman qilaman qilamiz yuki
+    istayman qilaman qilamiz yuki oyida yilda hozir ortacha kutilmoqda
     """.split()
 )
 
@@ -152,6 +152,15 @@ _DATE_DMY_RE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
 _DATE_TEXT_RE = re.compile(r"\b(\d{4})\s*-?\s*yil\w*\s+(\d{1,2})\s*-?\s*(" + "|".join(_MONTHS) + r")")
 _YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil")
 _YEAR_MONTH_RE = re.compile(r"\b(19\d{2}|20\d{2})\s*-?\s*yil\w*\s+(" + "|".join(_MONTHS) + r")")
+# Sanadan keyin (≤4 so'z ichida) foydalanuvchining o'z hodisasi: "firmam 2026 yil may oyida ochilgan" — bu
+# o'sha sanadagi qonun tahririni so'rash emas (2026-10-13 sinov: savol javobsiz qolgan edi).
+_EVENT_AFTER_DATE_RE = re.compile(
+    r"^(?:\W*\w+){0,3}?\W*(?:ochil|ochdi|ochgan|tashkil|royxatdan|royxatga|tuzil|sotib|tugil|ishga|"
+    r"boshladi|boshlagan|yopil|kelgan|kirgan|olingan|olganman|oldim)")
+# Lotin harfida yozilgan ruscha so'zlar (so'z boshi) → o'zbekcha atama: "aborotim 5 mlrd" — aylanma.
+LATIN_RU_TERMS: dict[str, str] = {"oborot": "aylanma", "aborot": "aylanma", "abarot": "aylanma",
+                                  "obarot": "aylanma"}
+_LATIN_RU_RE = re.compile(r"\b(" + "|".join(LATIN_RU_TERMS) + r")\w*")
 
 
 def transliterate(text: str) -> str:
@@ -293,27 +302,30 @@ class QueryPlan:
 
 
 def _historical(norm: str, today: date) -> tuple[date | None, str | None]:
-    m = _DATE_DMY_RE.search(norm)
-    if m:
-        try:
-            return date(int(m.group(3)), int(m.group(2)), int(m.group(1))), "day"
-        except ValueError:
-            pass
-    m = _DATE_TEXT_RE.search(norm)
-    if m:
-        try:
-            return date(int(m.group(1)), _MONTHS[m.group(3)], int(m.group(2))), "day"
-        except ValueError:
-            pass
-    m = _YEAR_MONTH_RE.search(norm)
-    if m:
-        return date(int(m.group(1)), _MONTHS[m.group(2)], 1), "month"
-    m = _YEAR_RE.search(norm)
-    if m:
-        year = int(m.group(1))
-        if year < today.year:
-            return date(year, 12, 31), "year"  # yil oxiridagi holat; javobda aniqlashtiriladi
-        return None, None
+    """Savolda so'ralgan o'tgan sana (qonun tahriri uchun). Hodisa sanasi ("... may oyida ochilgan") hisobga
+    olinmaydi; bir nechta sana bo'lsa — birinchi mos kelgani (aniqligi bo'yicha: kun, oy, yil)."""
+
+    def event(m: re.Match) -> bool:
+        return bool(_EVENT_AFTER_DATE_RE.match(norm[m.end():]))
+
+    for m in _DATE_DMY_RE.finditer(norm):
+        if not event(m):
+            try:
+                return date(int(m.group(3)), int(m.group(2)), int(m.group(1))), "day"
+            except ValueError:
+                pass
+    for m in _DATE_TEXT_RE.finditer(norm):
+        if not event(m):
+            try:
+                return date(int(m.group(1)), _MONTHS[m.group(3)], int(m.group(2))), "day"
+            except ValueError:
+                pass
+    for m in _YEAR_MONTH_RE.finditer(norm):
+        if not event(m):
+            return date(int(m.group(1)), _MONTHS[m.group(2)], 1), "month"
+    for m in _YEAR_RE.finditer(norm):
+        if not event(m) and int(m.group(1)) < today.year:
+            return date(int(m.group(1)), 12, 31), "year"  # yil oxiridagi holat; javobda aniqlashtiriladi
     return None, None
 
 
@@ -338,6 +350,7 @@ def is_followup(question: str, today: date) -> bool:
 def analyze(question: str, today: date) -> QueryPlan:
     russian = is_russian(question)
     norm = normalize(russian_to_uzbek(question) if russian else question)
+    norm = _LATIN_RU_RE.sub(lambda m: LATIN_RU_TERMS[m.group(1)], norm)
     plan = QueryPlan(question=question, normalized=norm, language="ru" if russian else "uz")
 
     m = _ARTICLE_RE.search(norm)
