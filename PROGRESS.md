@@ -512,6 +512,13 @@ ko'chirilgan), farq faqat SKILL.md (ish uslubi). Spec 19 (bilimlar importi) baja
       bog'langan; `app/retrieval/imtiyozlar.py` — imtiyoz savolida mos bandlar (muddati o'tmagan) ko'rsatgan
       moddalar kontekstga (≤3), AI'siz rejimda ham (≤2). Ro'yxat manba emas — manba Lex.uz moddasi.
       Sinov: "Qishloq xo'jaligi uchun qanday soliq imtiyozlari bor?" → 337 (foyda 0%) va 414 ham qo'shildi.
-- [ ] 3. Mavzu indeksi (kodeks-tuzilishi, maxsus-qism-indeksi) → mavzu bo'yicha nomzod moddalar.
-- [ ] 4. Bilimlar (bilimlar-bazasi, muddatlar, jarimalar, norezident) → bilimlar, turi='bilim'.
-- Testlar: 456 passed.
+- [x] 3+4. Skill bilimlari (bitta mexanizm): 8 fayl (bilimlar-bazasi, maxsus-qism-indeksi, kodeks-tuzilishi, muddatlar,
+      jarimalar, norezident, imtiyoz-so'rovnoma, bitim) → 55 bo'lim → `bilimlar` (turi='bilim', Supabase'ga yozildi).
+      `mijozlar-sohalari.md` (shaxsiy) va `yangiliklar-manbalari.md` olinmadi. `app/retrieval/bilimlar.py`: savolga mos
+      bo'lim (mazmunli so'zlarning ≥50%, ≥2) → sarlavhasidagi va savol so'zi uchragan xatboshidagi "N-modda", "PF-N",
+      "PQ-N" ishoralari → Lex.uz moddasi / hujjatning eng mos bo'limi kontekstga (≤2). Bo'lim matni manba emas.
+      Bob oralig'i ("1-15-modda") ishora emas. Supabase'da 14 savol: norezident → 351/353/354, jarima → 219/220,
+      muddatlar → 273/339, QQS chegarasi → 461, aloqasiz savollarda — hech narsa.
+- Qishloq xo'jaligi savoli (yakuniy): kontekstga 461 (aylanma: 1 mlrd chegara; 25 ga+ sug'oriladigan maydonli
+  korxonaga qo'llanmaydi) va 436 havolalar orqali qo'shildi; javob 22 iqtibos — hammasi to'g'ri.
+- Testlar: 461 passed.

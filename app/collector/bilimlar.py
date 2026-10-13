@@ -2,10 +2,15 @@
 
     python -m app.collector.bilimlar imtiyozlar          # quruq rejim: nechta yozuv, namunalar
     python -m app.collector.bilimlar imtiyozlar --yes    # bazaga yozish (record_key bo'yicha upsert)
+    python -m app.collector.bilimlar bilimlar [--yes]    # skill bilimlari (bo'limlar bo'yicha), turi = 'bilim'
 
 Manba: skill-bilimlar/kodeks-toliq/soliq-imtiyozlari-FAOL.csv — byudjet ochiqligi nizomiga 9-ilova, 2024-yil 9 oylik
 holati, amaldagi 507 band (kirill). Har band: soliq turi, imtiyoz matni ("(СК 379-м.) 2 банд. ..."), hujjat turi,
 sanasi, raqami, amal qilish muddati. Yozuv yo'naltiruvchi: javobda manba — tegishli moddaning Lex.uz matni.
+
+Skill bilimlari (spec 19): skill-bilimlar/*.md fayllari "##"/"###" bo'limlari bo'yicha; har bo'lim — mavzu yo'li va
+matn. Javobda bo'lim matni ishlatilmaydi: undagi "N-modda", "PF-N", "PQ-N" ishoralari bo'yicha Lex.uz matni olinadi.
+`mijozlar-sohalari.md` (mijozlar haqidagi shaxsiy ma'lumot) va `yangiliklar-manbalari.md` (saytlar ro'yxati) olinmaydi.
 """
 
 from __future__ import annotations
@@ -110,19 +115,89 @@ async def import_records(conn: asyncpg.Connection, records: list[Record]) -> int
     return len(records)
 
 
+SKILL_DIR = ROOT / "skill-bilimlar"
+SKILL_FILES = ("bilimlar-bazasi.md", "maxsus-qism-indeksi.md", "kodeks-tuzilishi.md", "hisobot-muddatlari-kalendari.md",
+               "jarima-malumotnomasi.md", "norezident-tolov-algoritmi.md", "imtiyoz-sorovnomasi.md",
+               "bitim-tarkibi-solishtirish.md")
+_HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
+
+
+@dataclass(frozen=True)
+class KnowledgeRecord:
+    record_key: str
+    topic: str
+    text: str
+    source: str
+
+
+def parse_skill_knowledge(directory: Path = SKILL_DIR) -> list[KnowledgeRecord]:
+    """Har fayl → bo'limlar ("##"/"###"); mavzu = fayl sarlavhasi > bo'lim > kichik bo'lim, matn — bo'lim tanasi."""
+    out: list[KnowledgeRecord] = []
+    for name in SKILL_FILES:
+        path = directory / name
+        lines = path.read_text(encoding="utf-8").splitlines()
+        heads: dict[int, str] = {}
+        body: list[str] = []
+        n = 0
+
+        def flush() -> None:
+            nonlocal n, body
+            text = "\n".join(body).strip()
+            if text and len(heads) > 1:  # fayl sarlavhasining o'zi (kirish) emas — mazmunli bo'lim
+                n += 1
+                topic = " > ".join(heads[k] for k in sorted(heads) if k > 1)  # fayl sarlavhasisiz
+                out.append(KnowledgeRecord(f"skill:{name}#{n}", topic[:300], text, f"skill-bilimlar/{name}"))
+            body = []
+
+        for line in lines:
+            m = _HEADING_RE.match(line)
+            if m:
+                flush()
+                level = len(m.group(1))
+                heads = {k: v for k, v in heads.items() if k < level}
+                heads[level] = m.group(2).replace("*", "").strip()
+            else:
+                body.append(line)
+        flush()
+    return out
+
+
+async def import_knowledge(conn: asyncpg.Connection, records: list[KnowledgeRecord]) -> int:
+    await conn.executemany(
+        """
+        INSERT INTO bilimlar (record_key, turi, topic, text, source, expiry_type, lex_check_required)
+        VALUES ($1, 'bilim', $2, $3, $4, 'yonaltiruvchi', true)
+        ON CONFLICT (record_key) DO UPDATE SET topic = EXCLUDED.topic, text = EXCLUDED.text, source = EXCLUDED.source
+        """,
+        [(r.record_key, r.topic, r.text, r.source) for r in records],
+    )
+    # Fayl qisqarsa — ortiqcha eski bo'limlar o'chiriladi (record_key raqamlari bo'yicha)
+    await conn.execute("DELETE FROM bilimlar WHERE turi = 'bilim' AND record_key <> ALL($1::text[])",
+                       [r.record_key for r in records])
+    return len(records)
+
+
 def main() -> None:
     from app.config import get_settings
     from app.database.connection import connect
 
     parser = argparse.ArgumentParser(description="Bilimlar bazasi importi")
-    parser.add_argument("what", choices=["imtiyozlar"])
+    parser.add_argument("what", choices=["imtiyozlar", "bilimlar"])
     parser.add_argument("--yes", action="store_true", help="bazaga yozish")
     args = parser.parse_args()
-    records = parse_imtiyozlar()
-    with_article = sum(1 for r in records if r.modda_raqami)
-    print(f"{len(records)} ta imtiyoz; Soliq kodeksi moddasi bilan: {with_article}")
-    for r in records[:3]:
-        print(f"  {r.record_key} | {r.topic} | {r.modda_raqami} | {r.amal_muddati} | {r.text[:100]}")
+    if args.what == "bilimlar":
+        records = parse_skill_knowledge()
+        print(f"{len(records)} ta bo'lim; fayllar: {len(SKILL_FILES)}")
+        for r in records[:4]:
+            print(f"  {r.record_key} | {r.topic[:90]}")
+        writer = import_knowledge
+    else:
+        records = parse_imtiyozlar()
+        with_article = sum(1 for r in records if r.modda_raqami)
+        print(f"{len(records)} ta imtiyoz; Soliq kodeksi moddasi bilan: {with_article}")
+        for r in records[:3]:
+            print(f"  {r.record_key} | {r.topic} | {r.modda_raqami} | {r.amal_muddati} | {r.text[:100]}")
+        writer = import_records
     if not args.yes:
         print("Quruq rejim: bazaga yozilmadi. Yozish uchun --yes qo'shing.")
         return
@@ -130,7 +205,7 @@ def main() -> None:
     async def run() -> None:
         conn = await connect(get_settings().supabase_db_url.get_secret_value())
         try:
-            print("yozildi:", await import_records(conn, records))
+            print("yozildi:", await writer(conn, records))
         finally:
             await conn.close()
 

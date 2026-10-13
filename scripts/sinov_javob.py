@@ -45,6 +45,7 @@ from app.services.answer import (  # noqa: E402
     format_answer,
     pick_new_hits,
     benefit_sources,
+    knowledge_sources,
     referenced_sources,
 )
 
@@ -64,6 +65,7 @@ async def sources(conn, question: str, extra: list[str], needs_more: list[str] |
         articles = await _articles_from_hits(conn, hits)
         articles += await referenced_sources(conn, articles, hits)  # botdagidek: havolalar zanjiri
         articles += await benefit_sources(conn, result.plan, today, articles)  # imtiyoz savoli: ro'yxatdan
+        articles += await knowledge_sources(conn, result.plan, articles)  # skill bilimlari yo'naltirgan
         if needs_more:  # botdagidek: mavjud manbalarda yo'q birliklar, raundga ko'pi bilan EXTRA_PER_ROUND
             present = {(a.lex_id, *a.key[1:]) for a in articles}
             groups = [await _search_text(conn, q, today, None) for q in needs_more[:3]]

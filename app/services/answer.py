@@ -28,6 +28,7 @@ from app.ai.prompts import SourceArticle, SourceElement, render_user_message
 from app.ai.validation import ValidatedAnswer, validate_answer
 from app.retrieval.articles import Article, get_article, get_section
 from app.retrieval.query import analyze
+from app.retrieval.bilimlar import knowledge_articles
 from app.retrieval.imtiyozlar import article_refs, find_benefits, is_benefit_question
 from app.retrieval.references import referenced_articles
 from app.retrieval.search import ArticleHit, SearchResult, retrieve, search_articles
@@ -167,6 +168,13 @@ async def benefit_sources(conn: asyncpg.Connection, plan, today: date,
                           articles: list[SourceArticle]) -> list[SourceArticle]:
     present = {(a.lex_id, a.modda_raqami) for a in articles if a.modda_raqami}
     return [article_to_source(a) for a in await benefit_articles(conn, plan, today, present)]
+
+
+async def knowledge_sources(conn: asyncpg.Connection, plan, articles: list[SourceArticle]) -> list[SourceArticle]:
+    """Skill bilimlari yo'naltirgan moddalar/hujjat bo'limlari (bo'lim matni emas — Lex.uz matni)."""
+    present = {(a.lex_id, a.modda_raqami) for a in articles if a.modda_raqami}
+    present |= {(a.lex_id, "") for a in articles if a.modda_raqami is None}
+    return [article_to_source(a) for a in await knowledge_articles(conn, plan, present)]
 
 
 def pick_new_hits(groups: list[list[ArticleHit]], present: set, limit: int) -> list[ArticleHit]:
@@ -326,6 +334,7 @@ async def answer_question(
             return done(status="not_found", text=format_insufficient([], []), search_queries=queries)
         articles += await referenced_sources(conn, articles, hits)
         articles += await benefit_sources(conn, result.plan, today, articles)
+        articles += await knowledge_sources(conn, result.plan, articles)
 
         rounds = 0
         note = None
