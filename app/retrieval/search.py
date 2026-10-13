@@ -28,8 +28,9 @@ from datetime import date
 import asyncpg
 
 from app.retrieval.articles import SOLIQ_KODEKSI_LEX_ID, Article, get_article
-from app.retrieval.query import ABBREVIATIONS, SYNONYMS, QueryPlan, analyze, normalize
+from app.retrieval.query import ABBREVIATIONS, DOMAIN_COMMON, SYNONYMS, QueryPlan, analyze, normalize
 from app.retrieval.spelling import apply_fixes, suggest
+from app.retrieval.structure import structural_articles
 
 DEFAULT_LIMIT = 6
 # Ierarxiya bo'yicha qayta tartiblash: SQL'dan ko'proq nomzod olinadi, og'irlikdan keyin `limit` tasi qoladi.
@@ -38,6 +39,9 @@ HIGH_LEVEL_TYPES = frozenset({"Кодекс", "Закон", "Kodeks", "Qonun"})
 ON_TOPIC_WEIGHT = 1.2
 OFF_TOPIC_WEIGHT = 0.5
 MIN_TOPIC_COVERAGE = 0.5
+# Kodeks/qonun moddasi: sarlavhasi savolga qanchalik aniq mos (heading_precision) — shuncha bonus. "Soliq agenti kim?"
+# → "23-modda. Soliq agentlari" 6-o'rindan, "Penya" — 5-o'rindan (2026-10-13 sohalar sinovi).
+CODE_HEADING_BONUS = 0.3
 # Sarlavha mos kelmasa ham, bitta elementi savol so'zlarining shuncha qismini qamragan bo'lim — jarimasiz (×1.0).
 # 2026-10-13: PF-100 II bo'limi ("Biznes o'sishini rag'batlantirish...") 2-bandi savolning 7 so'zidan 7 tasini
 # qamragan, lekin sarlavha bo'yicha ×0.5 olib, 6 so'zga mos Bojxona kodeksi 338-moddasidan pastga tushardi.
@@ -134,7 +138,47 @@ async def search_articles(
                 birlik_nomi=r["birlik_nomi"],
             )
         )
-    return await rerank_by_hierarchy(conn, plan, hits, limit)
+    hits = await rerank_by_hierarchy(conn, plan, hits, limit)
+    if plan.lex_ids is None or SOLIQ_KODEKSI_LEX_ID in plan.lex_ids:
+        hits = await with_structure(conn, plan, hits, limit)
+    return hits
+
+
+async def with_structure(conn: asyncpg.Connection, plan: QueryPlan, hits: list[ArticleHit],
+                         limit: int) -> list[ArticleHit]:
+    """Kodeks tuzilmasi bo'yicha topilgan moddalar (soliq turi + jihat: "aylanma ... kim to'laydi" → 461) — boshida.
+    Qidiruvda ham topilgan bo'lsa, o'sha natija (mos elementlari bilan) ko'tariladi."""
+    numbers = await structural_articles(conn, plan)
+    if not numbers:
+        return hits
+    sk = SOLIQ_KODEKSI_LEX_ID
+    existing = {h.modda_raqami: h for h in hits if h.lex_id == sk and h.modda_raqami}
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT ON (e.modda_raqami) e.modda_raqami, e.element_id, e.link, e.text, h.name, h.status
+        FROM elementlar e JOIN hujjatlar h ON h.id = e.document_id
+        WHERE h.lex_id = $1 AND e.kind = 'article' AND e.modda_raqami = ANY($2::text[])
+        ORDER BY e.modda_raqami, e.order_no
+        """,
+        sk, numbers,
+    )
+    heads = {r["modda_raqami"]: r for r in rows}
+    top = max((h.score for h in hits), default=1.0)
+    routed: list[ArticleHit] = []
+    for i, number in enumerate(numbers):
+        hit = existing.get(number)
+        if hit is None:
+            r = heads.get(number)
+            if r is None:
+                continue
+            hit = ArticleHit(lex_id=sk, document_name=r["name"], document_status=r["status"], modda_raqami=number,
+                             heading=r["text"], heading_element_id=r["element_id"], heading_link=r["link"],
+                             score=0.0, matched_terms=0, matched=[])
+        routed.append(replace(hit, score=top + 0.01 * (len(numbers) - i),
+                              matched_terms=max(hit.matched_terms, len(plan.terms))))
+    keep = {h.modda_raqami for h in routed}
+    rest = [h for h in hits if not (h.lex_id == sk and h.modda_raqami in keep)]
+    return (routed + rest)[:limit]
 
 
 def topic_coverage(plan: QueryPlan, text: str) -> float:
@@ -153,9 +197,22 @@ def topic_coverage(plan: QueryPlan, text: str) -> float:
     return (plain + (by_name if plain else 0)) / len(terms)
 
 
+def heading_precision(plan: QueryPlan, heading: str) -> float:
+    """Modda sarlavhasi so'zlarining qancha qismi savolda bor ("Soliq agentlari" — 1.0, "Soliq agentlari tomonidan
+    soliqni hisoblab chiqarish tartibi" — 0.43). Faqat "soliq" mos kelsa — 0."""
+    words = [w for w in _WORDS_RE.findall(normalize(re.sub(r"^\S+-modda\.", "", heading or ""))) if len(w) >= 3]
+    stems = [[t, *plan.variants.get(t, [])] for t in plan.terms]
+    hit = [w for w in words if any(w.startswith(f) for forms in stems for f in forms)]
+    if not words or not any(not w.startswith(tuple(DOMAIN_COMMON)) for w in hit):
+        return 0.0
+    return len(hit) / len(words)
+
+
 def hierarchy_weight(plan: QueryPlan, hit: ArticleHit, doc_type: str | None, doc_name: str | None) -> float:
     if doc_type in HIGH_LEVEL_TYPES:
-        return 1.0
+        if hit.modda_raqami is None:
+            return 1.0
+        return 1.0 + CODE_HEADING_BONUS * heading_precision(plan, hit.heading)
     unit_title = hit.birlik_nomi or hit.heading
     on_topic = max(topic_coverage(plan, doc_name or hit.document_name), topic_coverage(plan, unit_title))
     if on_topic >= MIN_TOPIC_COVERAGE:

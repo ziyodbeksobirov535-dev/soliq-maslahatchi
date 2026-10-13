@@ -59,6 +59,7 @@ RU_TERMS: dict[str, str] = {
     "инвентаризац": "inventarizatsiya", "аудит": "audit", "лиценз": "litsenziya", "разрешен": "ruxsatnoma",
     "субсиди": "subsidiya", "перевоз": "tashish", "груз": "yuk", "строител": "qurilish",
     "сельскохозяйств": "qishloq xojaligi", "штрафн": "jarima", "налоговый кодекс": "soliq kodeksi",
+    "плательщик": "tolovchi", "декрет": "homiladorlik va tugish tatili", "зарплат": "ish haqi",
 }
 _RU_KEYS = sorted(RU_TERMS, key=len, reverse=True)
 # O'zbek kirillida ishlatilmaydigan ruscha atamalar (o'zbekchada "солиқ", "фойда", "муддат", "ҳисобот"...).
@@ -89,7 +90,7 @@ STOPWORDS = frozenset(
     ayting aytib aytsangiz iltimos rahmat salom assalomu alaykum yordam bilmoqchiman bilaman xohlayman
     istayman qilaman qilamiz yuki oyida yilda hozir ortacha kutilmoqda
     kimlar kimga kimni kimning kimdan boladimi bolarmi bolsam bolsak qilsam qilsak
-    shugullanaman shugullanamiz shugullanadi
+    shugullanaman shugullanamiz shugullanadi har bolaman bolamiz bolasiz
     """.split()
 )
 
@@ -116,13 +117,13 @@ SUFFIXES = (
     "aymiz", "ayman", "amiz", "aman", "ymiz", "yman",
     "anadi", "iladi", "ladi", "adi", "ydi", "ilgan", "gan", "ib",
     # shart mayli: "tanlasam", "to'lasak", "o'tkazsangiz" (qisqa o'zaklar — "o'tsam" — _SHORT_VERB_COND_RE da)
-    "sangiz", "sang", "sam", "sak",
+    "sangiz", "sang", "sam", "sak", "sa",
     "chilar", "chi", "lik",
     "li",  # sifat: "foizli" → "foiz", "muddatli" → "muddat", "tegishli" → "tegish"
     "i",
 )
 # So'roq yuklamasi fe'l/kesimdan keyin: "to'lanadimi", "berilganmi", "kerakmi" → "-mi" kesiladi.
-_QUESTION_PARTICLE_RE = re.compile(r"(adi|ydi|di|gan|moqda|mas|kerak)(mi|mikan)$")
+_QUESTION_PARTICLE_RE = re.compile(r"(adi|ydi|di|gan|moqda|mas|kerak|man|miz|siz)(mi|mikan)$")
 # Qisqa fe'l o'zagi + shart mayli ("o'tsam", "olsak", "sotsangiz") — o'zak MIN_STEM dan qisqa, qo'shimcha
 # kesilmaydi; harakat nomiga keltiriladi: "o'tsam" → "o'tish" (qonun matnidagi shakl).
 _SHORT_VERB_COND_RE = re.compile(r"\b(ot|ol|ber|kel|sot|och|yop|kir|qol)(sa|sam|sak|sang|sangiz)\b")
@@ -136,6 +137,7 @@ DOMAIN_COMMON = frozenset({"soli"})
 SYNONYMS: dict[str, tuple[str, ...]] = {
     "qqs": ("qoshilgan qiymat soligi",),
     "jshds": ("jismoniy shaxslardan olinadigan daromad soligi",),
+    "yatt": ("yakka tartibdagi tadbirkor",),
     "aylanma": ("aylanmadan olinadigan soliq",),
     "jarima": ("moliyaviy sanksiya", "penya"),
     "topshir": ("taqdim etish",),
@@ -144,7 +146,7 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
 }
 
 # Qisqartmalar qo'shimcha bilan keladi ("QQSga", "JSHDSni") — prefiks bo'yicha tan olinadi.
-ABBREVIATIONS = ("jshds", "qqs")
+ABBREVIATIONS = ("jshds", "qqs", "yatt")
 
 DOCUMENT_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bsoliq kodeks"), "-4674902"),
@@ -172,6 +174,43 @@ _EVENT_AFTER_DATE_RE = re.compile(
 LATIN_RU_TERMS: dict[str, str] = {"oborot": "aylanma", "aborot": "aylanma", "abarot": "aylanma",
                                   "obarot": "aylanma"}
 _LATIN_RU_RE = re.compile(r"\b(" + "|".join(LATIN_RU_TERMS) + r")\w*")
+# So'zlashuv va lotin harfidagi ruscha → qonun tili (normallashtirilgan matnda, tartib bo'yicha). Qidiruv qonun
+# matnidagi so'zlar bilan ishlaydi: "nalog na pribil" — "foyda solig'i", "o'z xohishi bilan ishdan ketish" —
+# "xodimning tashabbusiga ko'ra mehnat shartnomasini bekor qilish" (2026-10-13 sohalar sinovi).
+COLLOQUIAL: tuple[tuple[re.Pattern[str], str], ...] = tuple((re.compile(p), r) for p, r in (
+    (r"\bnds(\w{0,4})\b", r"qqs\1"),  # "NDSni", "NDSga"
+    (r"\bndfl(\w{0,4})\b", r"jshds\1"),
+    (r"\bnalog\w* na pribil\w*", "foyda soligi"),
+    (r"\bnalog\w* na imushestv\w*", "mol-mulk soligi"),
+    (r"\bnalog\w*", "soliq"),
+    (r"\bpribil\w*", "foyda"),
+    (r"\bshtraf\w*", "jarima"),
+    (r"\botpusk\w*", "mehnat tatili"),
+    (r"\bdekret\w*", "homiladorlik va tugish tatili"),
+    (r"\bbolnichn\w*", "vaqtincha mehnatga layoqatsizlik"),
+    (r"\bzarplat\w*|\bmaosh\w*", "ish haqi"),
+    (r"\blgot\w*", "imtiyoz"),
+    (r"\botch[eo]t\w*", "hisobot"),
+    (r"\bsch[ey]?o?t[ -]?faktur\w*", "hisobvaraq-faktura"),
+    (r"\btamojn\w*", "bojxona"),
+    (r"\bposhlin\w*", "boj"),
+    (r"\bdogovor\w*", "shartnoma"),
+    (r"\bkassa apparat\w*|\bonlayn kassa\w*", "nazorat-kassa texnikasi"),
+    # ishdan bo'shatish — qonunda "mehnat shartnomasini bekor qilish" (asl so'zlar ham qoladi)
+    (r"\bishdan boshat\w*|\bishdan haydal?\w*", r"\g<0> mehnat shartnomasini bekor qilish"),
+    # ish haqidan soliq — jismoniy shaxslar daromad solig'i
+    (r"\b(ish haqi|oylik)\w* (\w+ )?soli\w*", r"\g<0> jshds"),
+    # mehnat: xodimning o'zi ketishi
+    (r"\boz (xohish|ixtiyor|arizasi)\w* (bilan |ga kora )?ishdan (ket|boshash|chiq)\w*",
+     "xodimning tashabbusiga kora mehnat shartnomasini bekor qilish"),
+    (r"\byillik (mehnat )?tatil\w*", "har yilgi asosiy mehnat tatili"),
+    # "ta'til necha kun" — qonunda eng kam davomiylik belgilanadi (MK 217: "...eng kam mehnat ta'tilining davomiyligi")
+    (r"\btatil\w*( \w+)? (necha|qancha) kun\w*", r"\g<0> eng kam davomiyligi"),
+    (r"\b(necha|qancha) kun\w*(?! eng kam davomiyligi)", r"\g<0> davomiyligi"),
+    # kech to'lash — penya; hisobotni kech topshirish — hisobot tartibini buzish
+    (r"\b(kech|oz vaqtida|muddatida) tola\w*|\bkechiktirib tola\w*", r"\g<0> penya"),
+    (r"\bkech topshir\w*|\boz vaqtida topshirma\w*", r"\g<0> soliq hisobotini taqdim etish tartibini buzish"),
+))
 # To'liq yozilgan soliq nomi → qisqartma ("qo'shilgan qiymat solig'i stavkasi" = "QQS stavkasi"): qisqartma o'zi
 # sinonim iborasini qo'shadi. Aks holda "qo'shilgan", "qiymat" alohida so'z bo'lib, iborani so'zma-so'z
 # takrorlaydigan qaror ilovalari 258-moddadan (QQS stavkasi) yuqoriga chiqardi (2026-10-13 sinov).
@@ -201,10 +240,30 @@ def is_russian(text: str) -> bool:
             or any(w.startswith(RU_ONLY_STEMS) for w in words))
 
 
+# Ruscha iboralar — so'zma-so'z emas, butun ibora o'zbekcha atamaga (lug'atdan oldin).
+RU_PHRASES: tuple[tuple[re.Pattern[str], str], ...] = tuple((re.compile(p), r) for p, r in (
+    (r"налог\w* с оборот\w*", " aylanmadan olinadigan soliq "),
+    (r"налог\w* на прибыл\w*", " foyda soligi "),
+    (r"налог\w* на имуществ\w*", " mol-mulk soligi "),
+    (r"земельн\w* налог\w*", " yer soligi "),
+    (r"социальн\w* налог\w*", " ijtimoiy soliq "),
+    (r"подоходн\w* налог\w*|налог\w* на доходы физическ\w* лиц", " jshds "),
+    (r"налог\w* на добавленн\w* стоимост\w*", " qqs "),
+    (r"\bкто\b", " kim "),
+    (r"\bплат(ит|ят|ить)\b", " tolaydi "),
+    (r"\bкогда\b", " qachon "),
+    (r"срок\w* сдач\w*|сдач\w*", " topshirish muddati "),
+    (r"сколько процент\w*|какой процент", " necha foiz "),
+))
+
+
 def russian_to_uzbek(text: str) -> str:
     """Ruscha savoldan o'zbekcha qidiruv matni: lug'atdagi atamalar, raqamlar va lotin so'zlar qoladi."""
     out = []
-    for token in re.findall(r"[а-яё]+(?:-[а-яё]+)*|[a-z0-9]+(?:[-.][a-z0-9]+)*", (text or "").lower()):
+    low = (text or "").lower()
+    for pattern, repl in RU_PHRASES:
+        low = pattern.sub(repl, low)
+    for token in re.findall(r"[а-яё]+(?:-[а-яё]+)*|[a-z0-9]+(?:[-.][a-z0-9]+)*", low):
         if not _CYR_RE.search(token):
             out.append(token)
             continue
@@ -378,6 +437,8 @@ def analyze(question: str, today: date) -> QueryPlan:
     russian = is_russian(question)
     norm = normalize(russian_to_uzbek(question) if russian else question)
     norm = _LATIN_RU_RE.sub(lambda m: LATIN_RU_TERMS[m.group(1)], norm)
+    for pattern, repl in COLLOQUIAL:
+        norm = pattern.sub(repl, norm)
     for pattern, abbr in FULL_TAX_NAMES:
         norm = pattern.sub(abbr, norm)
     norm = _SHORT_VERB_COND_RE.sub(r"\1ish", norm)

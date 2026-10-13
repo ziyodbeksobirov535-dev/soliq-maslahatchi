@@ -143,6 +143,25 @@ def test_colloquial_question_terms():
     assert analyze("Aylanma solig'ini kimlar to'laydi?", TODAY).terms == ["aylanma", "soli", "tola"]
 
 
+@pytest.mark.parametrize("question,normalized_part", [
+    ("NDS stavkasi qancha?", "qqs stavkasi"),
+    ("nalog na pribil stavkasi", "foyda soligi stavkasi"),
+    ("otpusk necha kun beriladi", "mehnat tatili necha kun eng kam davomiyligi"),
+    ("deklaratsiyani kech topshirsam shtraf qancha", "soliq hisobotini taqdim etish tartibini buzish jarima"),
+    ("Xodim o'z xohishi bilan ishdan ketsa", "xodimning tashabbusiga kora mehnat shartnomasini bekor qilish"),
+    ("kassa apparati bo'lmasa", "nazorat-kassa texnikasi"),
+    ("Ish haqidan qancha soliq ushlanadi?", "jshds"),
+    ("Soliqni kech to'lasam nima bo'ladi?", "penya"),
+])
+def test_colloquial_to_legal_terms(question, normalized_part):
+    assert normalized_part in analyze(question, TODAY).normalized
+
+
+def test_russian_phrases():
+    assert russian_to_uzbek("Кто платит налог с оборота?").split() == "kim tolaydi aylanmadan olinadigan soliq".split()
+    assert "jshds" in russian_to_uzbek("Подоходный налог ставка")
+
+
 def test_current_year_is_not_historical():
     assert analyze("2026-yilda QQS stavkasi qancha?", TODAY).historical_date is None
 
@@ -198,7 +217,7 @@ def test_russian_detection(question, expected):
 
 def test_russian_terms_are_mapped_and_rest_dropped():
     assert russian_to_uzbek("Какая ставка НДС для ИП?") == "stavka qqs yakka tartibdagi tadbirkor"
-    assert russian_to_uzbek("Сроки сдачи отчета по налогу на прибыль") == "muddat hisobot soliq foyda"
+    assert russian_to_uzbek("Сроки сдачи отчета по налогу на прибыль") == "topshirish muddati hisobot foyda soligi"
 
 
 def test_russian_article_question_finds_tax_code_article():
@@ -467,8 +486,9 @@ def test_rerank_puts_code_article_above_off_topic_annex(sk_db):
             await conn.close()
 
     ranked = run(go())
-    assert [h.lex_id for h in ranked] == [decree, SK, annex]
-    assert [round(h.score, 2) for h in ranked] == [1.68, 1.59, 1.36]
+    # 258-modda sarlavhasi ("Soliq stavkalari") yarmi savolda — ×1.15; nomi mos qaror ×1.2; mavzusiz ilova ×0.5.
+    assert [h.lex_id for h in ranked] == [SK, decree, annex]
+    assert [round(h.score, 2) for h in ranked] == [1.83, 1.68, 1.36]
 
 
 def lexuz_document(doc_id, name, elements):
