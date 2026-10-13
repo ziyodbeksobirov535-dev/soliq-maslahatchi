@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     llm_fallbacks: str = ""
     groq_api_key: SecretStr | None = None
     groq_main_model: str = "openai/gpt-oss-120b"
-    groq_fast_model: str = "openai/gpt-oss-20b"
+    groq_fast_model: str = "openai/gpt-oss-120b"  # 20b so'rovlari noaniqroq ("YTT", "NDS")
     openrouter_api_key: SecretStr | None = None
     openrouter_main_model: str | None = None
     openrouter_fast_model: str | None = None

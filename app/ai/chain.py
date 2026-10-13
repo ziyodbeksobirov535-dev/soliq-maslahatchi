@@ -20,15 +20,28 @@ from app.ai.schemas import AnswerOutput, NewsClassification, NewsDigest
 log = logging.getLogger(__name__)
 
 
+# Qisqa so'rovli vazifalar (`:fast` belgili zaxira faqat shularda ishlatiladi): savolni rasmiy so'rovlarga
+# aylantirish, yangilikni saralash va xabar tayyorlash. Javob (`answer`) — katta kontekst (Lex.uz moddalari):
+# Groq bepul tarifida daqiqasiga 8 000 token, javob so'rovi esa ~12 000 (413); OpenRouter bepul modellaridan biri
+# kontekstdagi PF-100 ni e'tiborsiz qoldirib xato javob berdi — xato javob "faqat manbalar" dan yomonroq
+# (2026-10-14 sinov).
+FAST_METHODS = frozenset({"rewrite_queries", "classify_news", "news_digest"})
+
+
 class ChainLLM:
-    def __init__(self, providers: list[tuple[str, Any]]) -> None:
+    def __init__(self, providers: list[tuple[str, Any]], fast_only: set[str] | None = None) -> None:
+        """providers: [(nomi, LLM)]; fast_only: faqat FAST_METHODS uchun ishlatiladigan provayder nomlari."""
         if not providers:
             raise ValueError("ChainLLM: kamida bitta provayder kerak")
         self.providers = providers
+        self.fast_only = fast_only or set()
 
     def _call(self, method: str, *args: Any) -> Any:
         errors = []
-        for name, llm in self.providers:
+        usable = [(n, llm) for n, llm in self.providers if n not in self.fast_only or method in FAST_METHODS]
+        if not usable:
+            raise LLMError(f"'{method}' uchun AI provayder yo'q")
+        for name, llm in usable:
             try:
                 return getattr(llm, method)(*args)
             except LLMRefusal:

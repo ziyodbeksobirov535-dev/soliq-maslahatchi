@@ -68,3 +68,20 @@ def test_make_llm_builds_chain_from_settings():
     # asosiy yo'q, zaxira bor — zaxira ishlaydi
     only = make_llm(Settings(_env_file=None, llm_provider="gemini", llm_fallbacks="groq", groq_api_key="q"))
     assert isinstance(only, OpenAICompatLLM) and only.name == "groq"
+
+
+def test_fast_only_provider_is_not_used_for_answers():
+    gemini, groq = Stub(error=LLMError("band")), Stub(result=["qqs stavkalari"])
+    chain = ChainLLM([("gemini", gemini), ("groq", groq)], fast_only={"groq"})
+    assert chain.rewrite_queries("NDS", Usage()) == ["qqs stavkalari"]  # so'rov tuzish — groq yordam beradi
+    with pytest.raises(LLMError, match="gemini: band"):
+        chain.answer("savol", Usage())  # javob — groq'ga o'tilmaydi (manbalar ko'rsatiladi)
+    assert groq.calls == 1
+
+
+def test_make_llm_fast_role():
+    from app.bot.app import make_llm
+
+    llm = make_llm(Settings(_env_file=None, llm_provider="gemini", llm_api_key="g", llm_main_model="m",
+                            llm_fast_model="f", llm_fallbacks="groq:fast", groq_api_key="q"))
+    assert isinstance(llm, ChainLLM) and llm.fast_only == {"groq"}

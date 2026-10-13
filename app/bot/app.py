@@ -94,19 +94,23 @@ def make_llm(settings: Settings):
     primary = _primary_llm(settings)
     if primary is not None:
         providers.append((settings.llm_provider, primary))
-    for name in [n.strip().lower() for n in settings.llm_fallbacks.split(",") if n.strip()]:
+    fast_only: set[str] = set()
+    for item in [n.strip().lower() for n in settings.llm_fallbacks.split(",") if n.strip()]:
+        name, _, role = item.partition(":")  # "groq:fast" — faqat qisqa vazifalar (so'rov tuzish, yangiliklar)
         llm = _fallback_llm(settings, name)
         if llm is not None:
             providers.append((name, llm))
+            if role == "fast":
+                fast_only.add(name)
     if not providers:
         log.warning("AI sozlamalari to'liq emas — savol-javob o'chiq, /modda ishlaydi")
         return None
-    log.info("LLM: %s", " → ".join(name for name, _ in providers))
-    if len(providers) == 1:
+    log.info("LLM: %s", " → ".join(n + (" (faqat qisqa vazifalar)" if n in fast_only else "") for n, _ in providers))
+    if len(providers) == 1 and not fast_only:
         return providers[0][1]
     from app.ai.chain import ChainLLM
 
-    return ChainLLM(providers)
+    return ChainLLM(providers, fast_only)
 
 
 async def run_bot(settings: Settings) -> None:

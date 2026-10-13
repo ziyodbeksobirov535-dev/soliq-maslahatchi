@@ -699,4 +699,14 @@ matni hali o'zgartirilmagan.
   OpenRouter (`OPENROUTER_API_KEY`, `OPENROUTER_MAIN_MODEL` — ":free" model). Ulagich endi IPv4 orqali,
   javob chegarasi 8 192 token. Kalit yoki model berilmagan zaxira o'tkazib yuboriladi (logda ogohlantirish).
 - Testlar: 531 passed.
+- Jonli sinov (savol: "YaTT uchun QQS to'lovchi bo'lish chegarasi qancha?", kontekstda PF-100 II bor):
+  Groq gpt-oss-120b — 413 (bepul tarif: daqiqasiga 8 000 token, javob so'rovi ~12 000); OpenRouter Gemma 4 31B —
+  429; OpenRouter Nemotron 3 Super — javob berdi, lekin XATO (1 mlrd, PF-100 ni e'tiborsiz qoldirdi, mantiq teskari).
+  Gemini shu kontekstda to'g'ri javob bergan. Xulosa: xato javob "faqat manbalar" dan yomonroq → zaxira faqat
+  qisqa vazifalar uchun: `LLM_FALLBACKS=groq:fast` (ChainLLM `fast_only`): so'rov tuzish, yangiliklar; javob —
+  faqat Gemini, u ishlamasa — manbalar ro'yxati. So'rov tuzishda Gemini aniqroq (rasmiy atamalar), Groq 120b
+  ~1,3 s (Gemini 2–8 s) → tartib: Gemini, keyin Groq. GROQ_FAST_MODEL sukuti — gpt-oss-120b (20b: "YTT", "NDS").
+- `.env` TextEdit'da ochiq qolib, foydalanuvchi kalit qo'shib saqlaganda oldingi tahrirlar (gemini, modellar)
+  ustidan eski nusxa yozildi — qayta tiklandi (kalitlarga tegilmadi).
+- Testlar: 533 passed.
 
