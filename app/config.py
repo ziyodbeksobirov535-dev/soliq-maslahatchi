@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     news_audience: Literal["admins", "all"] = "admins"
     # True — xabar faqat AI (Claude) bilan tayyorlanadi; AI ishlamasa (kredit yo'q) keyingi urinishgacha kutiladi.
     news_require_ai: bool = True
+    # Hujjat matni Lex.uz'da hali e'lon qilinmagan bo'lsa — shuncha kun kutiladi, keyin qisqa xabar (nomi, raqami,
+    # sanalari, havola) AI'siz tayyorlanadi; aks holda yangilik eskirib, umuman yuborilmasdi.
+    news_text_wait_days: int = Field(default=2, ge=0)
     # Majburiy kanal a'zoligi (app/bot/subscription.py): "@kanal" yoki "-100..." id; bo'sh — o'chiq.
     # Bot kanalda admin bo'lishi kerak. URL bo'sh bo'lsa "@kanal" dan https://t.me/kanal.
     required_channel: str | None = None

@@ -70,13 +70,18 @@ async def rss_job(pool: asyncpg.Pool, settings: Settings, llm) -> None:
 
 
 async def future_recheck_job(pool: asyncpg.Pool, settings: Settings) -> None:
-    """Kuchga kirish sanasi kelgan 'kuchga_kirmagan' hujjatlar: qayta yuklash, holatni qayta baholash (spec 16)."""
+    """Kuchga kirish sanasi kelgan 'kuchga_kirmagan' hujjatlar va matni hali e'lon qilinmagan yangi hujjatlar:
+    qayta yuklash, holatni qayta baholash (spec 16)."""
     with request_context():
         try:
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     "SELECT lex_id FROM hujjatlar WHERE status = 'kuchga_kirmagan' "
-                    "AND (effective_date IS NULL OR effective_date <= $1)",
+                    "AND (effective_date IS NULL OR effective_date <= $1) "
+                    # Matni Lex.uz'da hali e'lon qilinmagan yangi hujjatlar (oxirgi 30 kun) — matn chiqqanini
+                    # tekshirish; aks holda ular faqat haftalik yangilanishda, eng oxirida tekshirilardi.
+                    "UNION SELECT lex_id FROM hujjatlar WHERE NOT text_available "
+                    "AND created_at >= now() - interval '30 days'",
                     lexuz.today_tashkent(),
                 )
             with make_lexuz_client(settings) as client:

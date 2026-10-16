@@ -438,3 +438,24 @@ def test_admin_can_reshow_pending_preview(xdb):
     shown, again = with_pool(xdb, go)
     assert (shown, again) == (True, False)
     assert len([e for e in bot.edits if buttons(e[2])[-1] == "❌ Bekor qilindi"]) == 2  # ikkala ko'rinish yangilandi
+
+
+def test_news_without_published_text_waits_then_short_message(xdb):
+    """Lex.uz'da matni hali e'lon qilinmagan hujjat: `text_wait_days` kutiladi, keyin AI'siz qisqa xabar."""
+    from datetime import timedelta
+
+    async def go(pool):
+        async with pool.acquire() as conn:
+            await add_news(conn, lex_id="-9100001", url="https://lex.uz/docs/-9100001",
+                           pub_date=datetime.now(timezone.utc) - timedelta(days=1))
+            await add_news(conn, lex_id="-9100002", url="https://lex.uz/docs/-9100002",
+                           pub_date=datetime.now(timezone.utc) - timedelta(days=3))
+        cfg = settings(news_require_ai=True, news_text_wait_days=2, news_max_age_days=7)
+        ids = await xabarlar.prepare_news(pool, DigestLLM(lambda e: None), cfg)
+        async with pool.acquire() as conn:
+            return ids, await conn.fetch("SELECT kalit, matn, usul FROM xabarlar ORDER BY id")
+
+    ids, rows = with_pool(xdb, go)
+    assert len(ids) == 1 and rows[0]["kalit"] == "yangilik:-9100002"  # 1 kunlik — hali kutadi
+    assert rows[0]["usul"] == "matndan" and xabarlar.NO_TEXT_NOTE in rows[0]["matn"]
+    assert "https://lex.uz/docs/-9100002" in rows[0]["matn"]

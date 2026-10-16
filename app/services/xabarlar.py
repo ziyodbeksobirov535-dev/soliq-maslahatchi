@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 import asyncpg
 from aiogram import Bot
@@ -174,11 +174,26 @@ async def _doc_elements(conn: asyncpg.Connection, lex_id: str) -> list[asyncpg.R
     )
 
 
-async def build_news_draft(conn: asyncpg.Connection, y, llm, *, require_ai: bool = False) -> Draft | None:
-    """Yangilik xabari. AI (Claude) bo'lsa — oddiy tildagi sarlavha va tekshirilgan bandlar; bo'lmasa —
-    hujjatning birinchi bandlari. `require_ai` va AI natija bermasa — None (keyingi urinishda qayta)."""
+NO_TEXT_NOTE = "📄 Hujjat matni Lex.uz'da hali e'lon qilinmagan — rekvizitlari va havolasi:"
+
+
+async def build_news_draft(conn: asyncpg.Connection, y, llm, *, require_ai: bool = False,
+                           text_wait_days: int = 2, today: date | None = None) -> Draft | None:
+    """Yangilik xabari. AI bo'lsa — oddiy tildagi sarlavha va tekshirilgan bandlar; bo'lmasa — hujjatning birinchi
+    bandlari. `require_ai` va AI natija bermasa — None (keyingi urinishda qayta).
+    Matn Lex.uz'da hali e'lon qilinmagan (yangi hujjatlarda bir necha kun) — `text_wait_days` kutiladi, keyin qisqa
+    xabar: nomi, turi, raqami, sanalari, havola (AI'siz — mazmun to'qilmaydi). 2026-10-16: 14 ta yangilik matnni
+    kutib navbatda qolgan, 7 kundan keyin esa eskirib yo'qolardi."""
     rows = await _doc_elements(conn, y["lex_id"])
     draft = Draft("yangilik", f"yangilik:{y['lex_id']}", y["lex_id"], "", y["url"], "matndan")
+    if not rows:
+        published = y["pub_date"] or y["created_at"]
+        published = published.date() if hasattr(published, "date") else published
+        if ((today or date.today()) - published).days < text_wait_days:
+            return None  # matn chiqishini kutamiz
+        draft.matn = f"{render_news(y, [], kimga=soha_labels(y['keyword_hits']))}\n\n{NO_TEXT_NOTE}\n{y['url']}"
+        draft.usul = "matndan"  # AI'siz (bazadagi CHECK: llm | matndan)
+        return draft
     if llm is not None and rows and hasattr(llm, "news_digest"):
         meta = meta_line(y["doc_type"], y["number"], y["adoption_date"], y["effective_date"])
         by_id = {f"EL-{r['id']}": r for r in rows}
@@ -285,7 +300,8 @@ async def prepare_news(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]
     for y in rows:
         try:
             async with pool.acquire() as conn:
-                draft = await build_news_draft(conn, y, llm, require_ai=settings.news_require_ai)
+                draft = await build_news_draft(conn, y, llm, require_ai=settings.news_require_ai,
+                                               text_wait_days=settings.news_text_wait_days)
                 if draft is None:
                     skipped += 1
                     continue
@@ -295,7 +311,7 @@ async def prepare_news(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]
         except Exception:  # bitta hujjat qolganlarini to'xtatmasin
             log.error("news draft failed lex_id=%s", y["lex_id"], exc_info=True)
     if skipped:
-        log.warning("news drafts waiting for AI=%d (NEWS_REQUIRE_AI; Claude ishlamayapti — kredit?)", skipped)
+        log.info("news drafts waiting=%d (matn Lex.uz'da hali yo'q yoki AI javob bermadi)", skipped)
     return ids
 
 

@@ -728,3 +728,18 @@ matni hali o'zgartirilmagan.
 - Gemini: zaxirasi bor model 45 s da javob bermasa — zaxiraga (qotib qolganda 140 s kutilgan edi).
 - Testlar: 537 passed.
 
+### Yangiliklar to'xtab qolgan edi; bot ishlashi (2026-10-15..16)
+- Bot sessiyadan mustaqil (nohup) ishga tushiriladi, log qo'shilib boradi; har kiruvchi xabar logda (matnsiz:
+  foydalanuvchi, tur, uzunlik, davomiyligi) — "javob bermadi" holatini tekshirish uchun (`app.bot.app.log_update`).
+  Bot 2026-10-15 07:00 va 19:37 da tashqi SIGTERM bilan to'xtagan (Mac/ilova yopilishi) — qo'lda yoqildi.
+- Xato: 14 ta yangilik "AI'ni kutmoqda" deb navbatda qolgan. Sabab AI emas: hujjatlar matni Lex.uz'da hali e'lon
+  qilinmagan (sahifada faqat rekvizitlar; uz/ru versiyalari va PDF havolasi ham matnsiz), `text_available=false`,
+  elementlar 0; matnsiz hujjatlar faqat haftalik yangilanishda (oxirida) qayta tekshirilardi, yangilik esa
+  NEWS_MAX_AGE_DAYS dan keyin yo'qolardi.
+  Tuzatildi: (1) matn `NEWS_TEXT_WAIT_DAYS` (2) kun ichida chiqmasa — AI'siz qisqa xabar (turi, raqami, nomi,
+  sanalari, kimga tegishli, havola, "matn hali e'lon qilinmagan"); (2) `future_recheck_job` (har kuni 07:40)
+  oxirgi 30 kundagi matnsiz hujjatlarni ham qayta yuklaydi. Lex.uz ga 1 hujjat — 2 so'rov.
+- Qo'lda: RSS (103 yozuv, 4 yangi, 2 relevant import) va publish — 15 ta xabar adminga tasdiqlash uchun yuborildi.
+  Gemini 3.1-flash-lite butun yuklashda 503 — yangilik saralashni Groq zaxirasi bajardi.
+- Testlar: 538 passed.
+

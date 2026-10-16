@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import logging
 
@@ -30,6 +31,21 @@ COMMANDS = [
 ]
 
 
+async def log_update(handler, update, data):
+    """Har kiruvchi xabar logda (matnsiz: foydalanuvchi, tur, uzunlik) — "bot javob bermadi" holatida xabar
+    yetib kelgan-kelmaganini ko'rish uchun (aiogram.event loglari shovqin sifatida o'chirilgan)."""
+    event = update.event
+    user = getattr(event, "from_user", None)
+    text = getattr(event, "text", None) or getattr(event, "data", None) or ""
+    log.info("update id=%s tur=%s user=%s uzunlik=%d", update.update_id, update.event_type,
+             getattr(user, "id", "-"), len(text))
+    started = time.monotonic()
+    try:
+        return await handler(update, data)
+    finally:
+        log.info("update id=%s tugadi ms=%d", update.update_id, int((time.monotonic() - started) * 1000))
+
+
 def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
     dp = Dispatcher()
     dp["pool"] = pool
@@ -39,6 +55,7 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
     # bir vaqtda ko'pi bilan max_concurrent_questions savol ishlanadi (AI limiti, baza ulanishlari).
     dp["busy"] = set()
     dp["slots"] = asyncio.Semaphore(settings.max_concurrent_questions)
+    dp.update.outer_middleware(log_update)
     checker = MembershipChecker()
     dp["membership"] = checker
     gate = SubscriptionMiddleware(checker)
