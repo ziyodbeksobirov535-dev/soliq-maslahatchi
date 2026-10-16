@@ -743,3 +743,22 @@ matni hali o'zgartirilmagan.
   Gemini 3.1-flash-lite butun yuklashda 503 — yangilik saralashni Groq zaxirasi bajardi.
 - Testlar: 538 passed.
 
+
+### Yangi funksiyalar: batafsil yangilik, /eslatma, javob keshi, saralash, kunlik hisobot (2026-10-16)
+- Batafsil yangilik: qisqa (matnsiz) xabari tasdiqlangan/yuborilgan hujjatning matni keyin Lex.uz'da chiqsa —
+  "🔄 Batafsil: hujjat matni e'lon qilindi" xabari (asosiy o'zgarishlar), admin tasdig'iga; bir marta
+  (`yangilik-batafsil:<lex_id>`), qisqa xabar bekor qilingan bo'lsa — yo'q (`prepare_news_updates`, publish ichida).
+- Admin navbati saralanadi (`newsworthy`): Prezident hujjati, qonun, kodeks — har doim; VM qarori — asosiy soha
+  so'zi (soliq, QQS, bojxona, buxgalteriya, ish haqi, tadbirkor, imtiyoz…) bilan; idoraviy hujjat — shu so'z
+  nomida bo'lsa. 2026-10-16 dagi 15 ta xabardan 6 tasi qolardi (arxiv, yuk ortish, bank kassasi… tushib qoladi).
+  Hujjatlar bazaga baribir yuklanadi (qidiruv uchun) — faqat adminga xabar yuborilmaydi.
+- `/eslatma mavzu | eslatma | manbalar` (admin): bot noto'g'ri manbaga tayansa, Telegram'dan tasdiqlangan
+  eslatma — `bilimlar` (`admin:eslatma:N`), fayldagi "Eslatma:" kabi modelga `<eslatma>` bo'lib boradi; manba
+  ishorasi (modda, PF/PQ bandi) shart. `/eslatmalar` — ro'yxat, `/eslatma_ochir N`. Skill bilimlari importi
+  admin eslatmalarini o'chirmaydi (faqat `skill:%`).
+- Javob keshi (`app/services/javob_kesh.py`): bir xil savol + profil + kun → AI chaqirilmaydi (24 soat, xotirada,
+  500 ta). Faqat `answered`, davomiy savollar emas; limitga sanaladi, `suhbatlar`da `model = 'kesh:…'`.
+  👎 baho — keshdan o'chadi; eslatma qo'shilsa/o'chirilsa — kesh tozalanadi.
+- Kunlik hisobot (20:05, adminlarga): oxirgi 24 soat — savollar natija bo'yicha, foydalanuvchilar (yangi),
+  o'rtacha javob vaqti, keshdan, 👍/👎, AI ishlamagan holatlar, tasdiq kutayotgan xabarlar.
+- Testlar: 549 passed.

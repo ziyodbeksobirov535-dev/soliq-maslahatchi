@@ -6,6 +6,7 @@
 - Shanba 04:10 — Lex.uz qidiruvi: amaldagi eski hujjatlar ro'yxati
 - 08:10 — topilgan hujjatlardan kunlik limit bo'yicha import (DISCOVERY_DAILY_LIMIT, 0 = o'chiq)
 - 09:30 — soliq kalendari eslatmalari (rozilik berganlarga)
+- 20:05 — adminlarga kunlik hisobot (oxirgi 24 soat)
 - har 15 daqiqada (kunduzi) — yangilik/o'zgarish xabarlari: tayyorlash → admin tasdig'i → yuborish
 - har 5 daqiqada — heartbeat fayli (health check)
 Vaqtlar :00 dan siljitilgan (Lex.uz'ga bir vaqtda tushadigan yuklamani kamaytirish uchun).
@@ -21,6 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.bot.admin import daily_report
 from app.collector.jobs import discover_job, future_recheck_job, import_found_job, rss_job, weekly_refresh_job
 from app.config import Settings
 from app.health import write_heartbeat
@@ -53,6 +55,21 @@ async def reminders_job(bot, pool, settings: Settings) -> None:
             log.error("reminders_job failed", exc_info=True)
 
 
+async def report_job(bot, pool, settings: Settings) -> None:
+    """Adminlarga kunlik hisobot: savollar, sifat, AI xatolari, kutayotgan xabarlar."""
+    with request_context():
+        try:
+            async with pool.acquire() as conn:
+                text = await daily_report(conn, datetime.now(settings.tz))
+            for admin_id in settings.admin_telegram_ids:
+                try:
+                    await bot.send_message(admin_id, text, parse_mode="HTML")
+                except Exception:
+                    log.warning("report not delivered admin=%s", admin_id)
+        except Exception:
+            log.error("report_job failed", exc_info=True)
+
+
 def build_scheduler(pool, settings: Settings, llm, bot=None) -> AsyncIOScheduler:
     tz = settings.tz
     scheduler = AsyncIOScheduler(timezone=tz, job_defaults={"max_instances": 1, "coalesce": True,
@@ -73,4 +90,6 @@ def build_scheduler(pool, settings: Settings, llm, bot=None) -> AsyncIOScheduler
         scheduler.add_job(publish_job, IntervalTrigger(minutes=15), args=[bot, pool, settings, llm], id="publish")
         scheduler.add_job(reminders_job, CronTrigger(hour=9, minute=30, timezone=tz), args=[bot, pool, settings],
                           id="reminders")
+        scheduler.add_job(report_job, CronTrigger(hour=20, minute=5, timezone=tz), args=[bot, pool, settings],
+                          id="daily_report")
     return scheduler

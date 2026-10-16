@@ -459,3 +459,39 @@ def test_news_without_published_text_waits_then_short_message(xdb):
     assert len(ids) == 1 and rows[0]["kalit"] == "yangilik:-9100002"  # 1 kunlik — hali kutadi
     assert rows[0]["usul"] == "matndan" and xabarlar.NO_TEXT_NOTE in rows[0]["matn"]
     assert "https://lex.uz/docs/-9100002" in rows[0]["matn"]
+
+
+@pytest.mark.parametrize("doc_type, title, hits, expected", [
+    ("Prezident farmoni", "Arxiv ishini takomillashtirish to'g'risida", ["arxiv"], True),  # Prezident — har doim
+    ("O'zbekiston Respublikasining Qonuni", "Yo'l harakati to'g'risida", [], True),
+    ("Vazirlar Mahkamasining qarori", "Yaylovlardan foydalanish tartibi", ["soliq"], True),
+    ("Vazirlar Mahkamasining qarori", "Yuk ortish xavfsizligi qoidalari", ["xavfsizlik"], False),
+    ("Markaziy bank boshqaruvining qarori", "Bank kassasi ishini tashkil etish", ["soliq"], False),  # nomida yo'q
+    ("Soliq qo'mitasi buyrug'i", "Elektron hisobvaraq-fakturalar shakli to'g'risida", [], True),
+])
+def test_newsworthy_filters_admin_queue(doc_type, title, hits, expected):
+    assert xabarlar.newsworthy({"doc_type": doc_type, "title": title, "keyword_hits": hits}) is expected
+
+
+def test_detailed_update_after_text_is_published(xdb):
+    """Qisqa (matnsiz) xabar yuborilgan hujjatning matni keyin chiqdi — bir marta batafsil xabar; bekor qilingani — yo'q."""
+    async def go(pool):
+        async with pool.acquire() as conn:
+            await add_news(conn)
+            await conn.execute(
+                "INSERT INTO xabarlar (turi, kalit, lex_id, matn, havola, tugmalar, usul, holat) "
+                "VALUES ('yangilik', $1, $2, $3, $4, '[]'::jsonb, 'matndan', 'yuborildi')",
+                f"yangilik:{DOC_ID}", DOC_ID, f"<b>PF-1</b>\n\n{xabarlar.NO_TEXT_NOTE}", NEWS["url"])
+        first = await xabarlar.prepare_news_updates(pool, None, settings())
+        second = await xabarlar.prepare_news_updates(pool, None, settings())
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT kalit, matn, holat FROM xabarlar WHERE kalit LIKE 'yangilik-batafsil:%'")
+            await conn.execute("DELETE FROM xabarlar WHERE kalit LIKE 'yangilik-batafsil:%'")
+            await conn.execute("UPDATE xabarlar SET holat = 'bekor'")
+        cancelled = await xabarlar.prepare_news_updates(pool, None, settings())
+        return first, second, rows, cancelled
+
+    first, second, rows, cancelled = with_pool(xdb, go)
+    assert len(first) == 1 and second == [] and cancelled == []
+    assert rows[0]["kalit"] == f"yangilik-batafsil:{DOC_ID}" and rows[0]["holat"] == "kutilmoqda"
+    assert rows[0]["matn"].startswith(xabarlar.UPDATE_HEAD) and xabarlar.NO_TEXT_NOTE not in rows[0]["matn"]

@@ -16,6 +16,7 @@ from app.bot.subscription import MembershipChecker, SubscriptionMiddleware
 from app.config import Settings
 from app.database.connection import create_pool
 from app.health import write_heartbeat
+from app.services.javob_kesh import AnswerCache
 from app.scheduler.scheduler import build_scheduler
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ def build_dispatcher(pool, settings: Settings, llm) -> Dispatcher:
     # bir vaqtda ko'pi bilan max_concurrent_questions savol ishlanadi (AI limiti, baza ulanishlari).
     dp["busy"] = set()
     dp["slots"] = asyncio.Semaphore(settings.max_concurrent_questions)
+    dp["answer_cache"] = AnswerCache()  # takroriy savollar: 24 soat, AI chaqirilmaydi
     dp.update.outer_middleware(log_update)
     checker = MembershipChecker()
     dp["membership"] = checker

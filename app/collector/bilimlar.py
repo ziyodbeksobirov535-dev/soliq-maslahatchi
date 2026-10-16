@@ -172,8 +172,9 @@ async def import_knowledge(conn: asyncpg.Connection, records: list[KnowledgeReco
         [(r.record_key, r.topic, r.text, r.source) for r in records],
     )
     # Fayl qisqarsa — ortiqcha eski bo'limlar o'chiriladi (record_key raqamlari bo'yicha)
-    await conn.execute("DELETE FROM bilimlar WHERE turi = 'bilim' AND record_key <> ALL($1::text[])",
-                       [r.record_key for r in records])
+    # faqat fayllardan kelganlari ("skill:..."); admin eslatmalari ("admin:eslatma:N") tegilmaydi
+    await conn.execute("DELETE FROM bilimlar WHERE turi = 'bilim' AND record_key LIKE 'skill:%' "
+                       "AND record_key <> ALL($1::text[])", [r.record_key for r in records])
     return len(records)
 
 

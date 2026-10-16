@@ -102,7 +102,8 @@ async def matching_records(conn: asyncpg.Connection, plan: QueryPlan, limit: int
             SELECT * FROM b WHERE hits >= $2
             -- Lex.uz bilan tasdiqlangan yozuvlar birinchi (aks holda boshqa yozuvlar joyni egallab, PF-100 bandi
             -- kontekstga kirmay qolgan — 2026-10-14 sinov)
-            ORDER BY (record_key LIKE 'skill:loyiha-tasdiqlangan-bilimlar.md#%') DESC, hits DESC, record_key
+            ORDER BY (record_key LIKE 'skill:loyiha-tasdiqlangan-bilimlar.md#%' OR record_key LIKE 'admin:eslatma:%')
+                     DESC, hits DESC, record_key
             LIMIT $3
             """,
             ts, need, limit,
@@ -176,6 +177,7 @@ async def knowledge_articles(conn: asyncpg.Connection, plan: QueryPlan, present:
 
 
 VERIFIED_PREFIX = "skill:loyiha-tasdiqlangan-bilimlar.md#"
+VERIFIED_PREFIXES = (VERIFIED_PREFIX, "admin:eslatma:")  # fayldagi va admin Telegram'dan qo'shgan eslatmalar
 MAX_NOTES = 3
 
 
@@ -186,7 +188,7 @@ async def verified_notes(conn: asyncpg.Connection, plans: list[QueryPlan]) -> li
     notes: list[str] = []
     for plan in plans:
         for record in await matching_records(conn, plan):
-            if not record["record_key"].startswith(VERIFIED_PREFIX):
+            if not record["record_key"].startswith(VERIFIED_PREFIXES):
                 continue
             for line in record["text"].splitlines():
                 note = line.removeprefix("Eslatma:").strip()

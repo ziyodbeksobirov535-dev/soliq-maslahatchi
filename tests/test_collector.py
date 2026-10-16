@@ -488,7 +488,7 @@ def test_scheduler_jobs():
     scheduler = build_scheduler(pool=None, settings=Settings(_env_file=None), llm=None, bot=object())
     jobs = {j.id: j for j in scheduler.get_jobs()}
     assert set(jobs) == {"rss", "future_recheck", "weekly_refresh", "discover", "import_found", "heartbeat",
-                         "publish", "reminders"}
+                         "publish", "reminders", "daily_report"}
 
     def cron(job_id):
         return {f.name: str(f) for f in jobs[job_id].trigger.fields if not f.is_default}
@@ -499,6 +499,7 @@ def test_scheduler_jobs():
     assert cron("discover") == {"day_of_week": "sat", "hour": "4", "minute": "10"}
     assert cron("import_found") == {"hour": "8", "minute": "10"}
     assert cron("reminders") == {"hour": "9", "minute": "30"}
+    assert cron("daily_report") == {"hour": "20", "minute": "5"}
     assert jobs["heartbeat"].trigger.interval.total_seconds() == 300
     assert jobs["publish"].trigger.interval.total_seconds() == 900
     no_bot = build_scheduler(pool=None, settings=Settings(_env_file=None), llm=None)

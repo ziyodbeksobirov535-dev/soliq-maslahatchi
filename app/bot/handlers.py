@@ -54,8 +54,9 @@ from app.collector.news import recent_news
 from app.config import Settings
 from app.retrieval.articles import get_article, get_section, normalize_article_number
 from app.retrieval.query import is_followup, is_russian, normalize
-from app.services import kalendar, kalkulyator, obuna
+from app.services import eslatmalar, kalendar, kalkulyator, obuna
 from app.services.answer import answer_question, answer_without_llm
+from app.services.javob_kesh import AnswerCache, question_key
 from app.services.xabarlar import decide, post_to_channel, show_preview
 from app.services.users import (
     PROFILE_FIELDS,
@@ -317,11 +318,12 @@ async def cmd_modda(message: Message, command: CommandObject, pool: asyncpg.Pool
 
 async def on_modda_number(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
                           state: FSMContext, busy: set[int] | None = None,
-                          slots: asyncio.Semaphore | None = None) -> None:
+                          slots: asyncio.Semaphore | None = None,
+                          answer_cache: AnswerCache | None = None) -> None:
     await state.clear()
     number, _ = parse_modda_args(message.text)
     if number is None:  # raqam emas — oddiy savol sifatida
-        await on_question(message, pool, settings, llm, state, busy, slots)
+        await on_question(message, pool, settings, llm, state, busy, slots, answer_cache)
         return
     await show_modda(message, pool, message.from_user.id, message.text)
 
@@ -342,7 +344,7 @@ async def on_view_source(query: CallbackQuery, pool: asyncpg.Pool) -> None:
     await send_long(query.message, format_article(article))
 
 
-async def on_rate(query: CallbackQuery, pool: asyncpg.Pool) -> None:
+async def on_rate(query: CallbackQuery, pool: asyncpg.Pool, answer_cache: AnswerCache | None = None) -> None:
     parts = (query.data or "").split(":")
     if len(parts) != 3 or parts[2] not in ("1", "-1"):
         await query.answer()
@@ -354,6 +356,8 @@ async def on_rate(query: CallbackQuery, pool: asyncpg.Pool) -> None:
         return
     async with pool.acquire() as conn:
         saved = await set_rating(conn, parts[1], query.from_user.id, int(parts[2]))
+    if saved and parts[2] == "-1" and answer_cache is not None:
+        answer_cache.forget(parts[1])  # foydasiz javob boshqalarga keshdan berilmasin
     await query.answer("Rahmat, bahoyingiz saqlandi!" if saved else "Baho saqlanmadi")
     if saved:
         await query.message.edit_reply_markup(reply_markup=without_rating(query.message.reply_markup))
@@ -421,14 +425,15 @@ async def on_calc_button(query: CallbackQuery, state: FSMContext) -> None:
 
 async def on_calc_value(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
                         state: FSMContext, busy: set[int] | None = None,
-                        slots: asyncio.Semaphore | None = None) -> None:
+                        slots: asyncio.Semaphore | None = None,
+                        answer_cache: AnswerCache | None = None) -> None:
     data = await state.get_data()
     result = kalkulyator.calculate(data.get("kind", ""), message.text or "", data.get("rate", "4"))
     if result is None:
         text = message.text or ""
         if "?" in text or len(re.findall(r"[a-z]{2,}", normalize(text))) >= 2:  # son emas, savol — savolga o'tamiz
             await state.clear()
-            await on_question(message, pool, settings, llm, state, busy, slots)
+            await on_question(message, pool, settings, llm, state, busy, slots, answer_cache)
             return
         await message.answer("Sonni tushunmadim. " + kalkulyator.PROMPTS[data.get("kind", "qqs_qosh")],
                              parse_mode=ParseMode.HTML)
@@ -534,6 +539,56 @@ async def cmd_obuna_ber(message: Message, command: CommandObject, pool: asyncpg.
         await ensure_user(conn, tg_id)
         until = await obuna.extend(conn, tg_id, days, "admin", datetime.now(timezone.utc))
     await message.answer(f"✅ {tg_id} uchun premium {obuna.expires_text(until, settings.tz)} gacha.")
+
+
+async def cmd_eslatma(message: Message, command: CommandObject, pool: asyncpg.Pool, settings: Settings,
+                      answer_cache: AnswerCache | None = None) -> None:
+    """Admin: tasdiqlangan eslatma qo'shish (bot noto'g'ri manbaga tayansa — masalan, eski kodeks qiymati)."""
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    note = eslatmalar.parse(command.args or "")
+    if isinstance(note, str):
+        await message.answer(note)
+        return
+    async with pool.acquire() as conn:
+        n = await eslatmalar.add(conn, note, message.from_user.id)
+    if answer_cache is not None:
+        answer_cache.clear()  # eski (eslatmasiz) javoblar qayta berilmasin
+    await message.answer(f"✅ Eslatma #{n} qo'shildi. Mos savollarda model unga amal qiladi; javob manbalarga "
+                         f"({note.refs}) bog'lanadi.\nO'chirish: /eslatma_ochir {n}")
+
+
+async def cmd_eslatmalar(message: Message, pool: asyncpg.Pool, settings: Settings) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    async with pool.acquire() as conn:
+        notes = await eslatmalar.list_notes(conn)
+    if not notes:
+        await message.answer("Admin eslatmalari yo'q.\n\n" + eslatmalar.USAGE)
+        return
+    lines = ["<b>Admin eslatmalari</b>", ""]
+    for n, topic, text in notes:
+        lines.append(f"#{n} <b>{esc(topic)}</b>\n{esc(text)}")
+    lines += ["", "O'chirish: /eslatma_ochir N"]
+    await send_long(message, "\n\n".join(lines))
+
+
+async def cmd_eslatma_ochir(message: Message, command: CommandObject, pool: asyncpg.Pool, settings: Settings,
+                            answer_cache: AnswerCache | None = None) -> None:
+    if not settings.is_admin(message.from_user.id):
+        await message.answer("Bu buyruq faqat adminlar uchun.")
+        return
+    arg = (command.args or "").strip().lstrip("#")
+    if not arg.isdigit():
+        await message.answer("Foydalanish: /eslatma_ochir N (raqamni /eslatmalar da ko'ring)")
+        return
+    async with pool.acquire() as conn:
+        done = await eslatmalar.remove(conn, int(arg))
+    if done and answer_cache is not None:
+        answer_cache.clear()
+    await message.answer(f"🗑 Eslatma #{arg} o'chirildi." if done else f"Eslatma #{arg} topilmadi.")
 
 
 async def cmd_obuna_ol(message: Message, command: CommandObject, pool: asyncpg.Pool, settings: Settings) -> None:
@@ -703,7 +758,7 @@ THINKING = {
 
 async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None,
                       state: FSMContext | None = None, busy: set[int] | None = None,
-                      slots: asyncio.Semaphore | None = None) -> None:
+                      slots: asyncio.Semaphore | None = None, answer_cache: AnswerCache | None = None) -> None:
     tg_id = message.from_user.id
     question = message.text.strip()
     args = modda_only(question)
@@ -726,13 +781,14 @@ async def on_question(message: Message, pool: asyncpg.Pool, settings: Settings, 
         if slots.locked():
             await message.answer(texts["queue"])
         async with slots:
-            await answer_one(message, pool, settings, llm, tg_id, question, texts)
+            await answer_one(message, pool, settings, llm, tg_id, question, texts, answer_cache)
     finally:
         busy.discard(tg_id)
 
 
 async def answer_one(message: Message, pool: asyncpg.Pool, settings: Settings, llm: LLM | None, tg_id: int,
-                     question: str, texts: dict[str, str] | None = None) -> None:
+                     question: str, texts: dict[str, str] | None = None,
+                     answer_cache: AnswerCache | None = None) -> None:
     texts = texts or THINKING["uz"]
     with request_context() as rid:
         async with pool.acquire() as conn:
@@ -759,11 +815,18 @@ async def answer_one(message: Message, pool: asyncpg.Pool, settings: Settings, l
                 if is_followup(question, today):
                     previous = await last_question(conn, tg_id, datetime.now(timezone.utc))
                 asked = f"{previous} — {question}" if previous else question
-                if llm is None:
+                key = question_key(question, user.profile, today)
+                fa = answer_cache.get(key, rid) if answer_cache is not None and llm and not previous else None
+                if fa is not None:
+                    log.info("answer cache hit")
+                elif llm is None:
                     fa = await answer_without_llm(conn, asked, today, request_id=rid)
                 else:
                     fa = await answer_question(conn, llm, asked, today, request_id=rid, profile=user.profile,
                                                progress=progress)
+                    fa.followup_of = previous
+                    if answer_cache is not None:
+                        answer_cache.put(key, fa)
                 fa.followup_of = previous
                 await log_conversation(conn, tg_id, question, fa)
             finally:
@@ -803,6 +866,9 @@ def create_router() -> Router:
     router.message(Command("obuna"))(cmd_obuna)
     router.message(Command("obuna_ber"))(cmd_obuna_ber)
     router.message(Command("obuna_ol"))(cmd_obuna_ol)
+    router.message(Command("eslatma"))(cmd_eslatma)
+    router.message(Command("eslatmalar"))(cmd_eslatmalar)
+    router.message(Command("eslatma_ochir"))(cmd_eslatma_ochir)
     router.message(F.successful_payment)(on_paid)
     router.pre_checkout_query()(on_pre_checkout)
     router.message(Command("yangiliklar"))(cmd_news)

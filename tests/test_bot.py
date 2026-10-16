@@ -686,3 +686,109 @@ def test_start_text_follows_telegram_language(bot_db):
     assert s.sent[0].text.startswith("Здравствуйте") and "<b>2</b>" in s.sent[0].text
     s = feed(bot_db, ["/start"], user_id=7271, cfg=settings(daily_question_limit=2))
     assert s.sent[0].text.startswith("Assalomu alaykum") and "<b>2 ta</b>" in s.sent[0].text
+
+
+# --- /eslatma, javob keshi, kunlik hisobot ---------------------------------------------------
+
+
+def test_admin_note_commands(bot_db):
+    from app.services import eslatmalar
+
+    assert "faqat adminlar" in feed(bot_db, ["/eslatma a | b | 461-modda"], user_id=USER).sent[0].text
+    assert "Manba ishorasi topilmadi" in feed(bot_db, ["/eslatma QQS | yangi chegara | farmon"], user_id=ADMIN).sent[0].text
+    s = feed(bot_db, ["/eslatma QQS chegarasi | 2026-yil 1-iyundan BHMning 12 000 baravari | PF-100 2-band, 461-modda",
+                      "/eslatmalar"], user_id=ADMIN)
+    assert "Eslatma #1 qo'shildi" in s.sent[0].text and "12 000 baravari" in s.sent[1].text
+    row = query(bot_db, "SELECT topic, text FROM bilimlar WHERE record_key = 'admin:eslatma:1'")[0]
+    assert "PF-100 2-band" in row["topic"] and "\nEslatma: 2026-yil" in row["text"]
+
+    async def notes():  # savolga mos admin eslatmasi modelga beriladi
+        from app.retrieval.bilimlar import verified_notes
+        from app.retrieval.query import analyze
+
+        conn = await connect(bot_db)
+        try:
+            return await verified_notes(conn, [analyze("QQS chegarasi qancha?", TODAY)])
+        finally:
+            await conn.close()
+
+    assert any("12 000 baravari" in n for n in run(notes()))
+    s = feed(bot_db, ["/eslatma_ochir 1", "/eslatma_ochir 1"], user_id=ADMIN)
+    assert "o'chirildi" in s.sent[0].text and "topilmadi" in s.sent[1].text
+    assert not query(bot_db, "SELECT 1 FROM bilimlar WHERE record_key LIKE $1", eslatmalar.PREFIX + "%")
+
+
+def test_repeated_question_answered_from_cache(bot_db):
+    llm = FakeLLM(lambda msg, n: cite_first_text(msg))
+    session = MockedSession()
+
+    async def go():
+        pool = await create_pool(bot_db, min_size=1, max_size=2)
+        try:
+            bot = Bot(TOKEN, session=session)
+            dp = build_dispatcher(pool, settings(), llm)  # bitta dispatcher — bitta kesh
+            await dp.feed_update(bot, update(7401, "Soliq imtiyozlari shartlari?", 1))
+            await dp.feed_update(bot, update(7402, "soliq imtiyozlari  shartlari", 2))  # boshqa foydalanuvchi
+            rid = await pool.fetchval("SELECT request_id FROM suhbatlar WHERE telegram_id = 7402")
+            await dp.feed_update(bot, callback(7402, f"r:{rid}:-1", 3))  # 👎 — keshdan o'chadi
+            await dp.feed_update(bot, update(7403, "Soliq imtiyozlari shartlari?", 4))
+        finally:
+            await pool.close()
+
+    run(go())
+    assert len(llm.answer_calls) == 2  # 1-va 3-savol AI'dan, 2-si keshdan
+    replies = [m.text for m in session.sent if m.chat_id in (7401, 7402)]
+    assert len(replies) == 2 and replies[0] == replies[1]
+    rows = query(bot_db, "SELECT telegram_id, status, model FROM suhbatlar WHERE telegram_id = ANY($1::bigint[]) "
+                         "ORDER BY id", [7401, 7402, 7403])
+    assert [r["status"] for r in rows] == ["answered"] * 3 and rows[1]["model"].startswith("kesh:")
+
+
+def test_answer_cache_unit():
+    from datetime import date
+
+    from app.services.answer import FinalAnswer
+    from app.services.javob_kesh import AnswerCache, question_key
+
+    day = date(2026, 10, 16)
+    key = question_key("QQS stavkasi qancha?", {"rejim": "qqs"}, day)
+    assert key == question_key("qqs  stavkasi qancha", {"rejim": "qqs"}, day)
+    assert key != question_key("QQS stavkasi qancha?", {}, day)  # profil boshqa
+    assert key != question_key("QQS stavkasi qancha?", {"rejim": "qqs"}, date(2026, 10, 17))  # kun boshqa
+    cache = AnswerCache(ttl=60)
+    cache.put(key, FinalAnswer(status="insufficient", text="x", request_id="a"))
+    cache.put("f", FinalAnswer(status="answered", text="x", request_id="b", followup_of="oldingi"))
+    assert len(cache) == 0  # faqat to'liq, mustaqil javoblar
+    cache.put(key, FinalAnswer(status="answered", text="javob", request_id="c"))
+    hit = cache.get(key, "d")
+    assert hit.text == "javob" and hit.request_id == "d" and hit.usage.input_tokens == 0
+    assert cache.forget("d") and cache.get(key, "e") is None
+    cache = AnswerCache(ttl=0)
+    cache.put(key, FinalAnswer(status="answered", text="javob", request_id="c"))
+    assert cache.get(key, "d") is None  # muddati o'tgan
+
+
+def test_daily_report_for_admins(bot_db):
+    from app.bot.admin import daily_report
+    from app.scheduler.scheduler import report_job
+
+    llm = FakeLLM(lambda msg, n: cite_first_text(msg))
+    feed(bot_db, ["Soliq imtiyozlari shartlari?"], user_id=7501, llm=llm)
+
+    async def go():
+        conn = await connect(bot_db)
+        try:
+            text = await daily_report(conn, datetime.now(timezone.utc))
+        finally:
+            await conn.close()
+        pool = await create_pool(bot_db, min_size=1, max_size=2)
+        session = MockedSession()
+        try:
+            await report_job(Bot(TOKEN, session=session), pool, settings())
+        finally:
+            await pool.close()
+        return text, session
+
+    text, session = run(go())
+    assert "Kunlik hisobot" in text and "javob berildi:" in text and "Baholar: 👍" in text
+    assert [m.chat_id for m in session.sent] == [ADMIN] and "Kunlik hisobot" in session.sent[0].text

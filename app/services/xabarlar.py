@@ -284,6 +284,67 @@ async def save_draft(conn: asyncpg.Connection, d: Draft) -> int | None:
     )
 
 
+# Adminga yangilik xabari — faqat buxgalter uchun ahamiyatlilari (hujjat bazaga baribir yuklanadi — qidiruv uchun).
+# 2026-10-16: 15 ta xabardan arxiv ishi, yuk ortish xavfsizligi, bank kassasi, kasbiy ta'lim kabilar ham bor edi.
+TOP_ISSUERS = ("prezident", "qonun", "kodeks", "oliy majlis")  # relevant bo'lsa — har doim
+CORE_SOZLAR = (
+    "soliq", "solig", "qqs", "qoshilgan qiymat", "aksiz", "bojxona", "boj", "buxgalter", "moliyaviy hisobot",
+    "hisob standart", "bhms", "audit", "ish haqi", "mehnat", "pensiya", "ijtimoiy soliq", "hisobvaraq-faktura",
+    "elektron hisobvaraq", "onlayn-nazorat", "jarima", "penya", "yigim", "davlat boji", "majburiy tolov", "imtiyoz",
+    "preferensiya", "subsidiya", "tadbirkor", "yakka tartibdagi", "biznes", "erkin iqtisodiy zona",
+    "maxsus iqtisodiy zona", "litsenziya", "kompensatsiya", "inventarizatsiya",
+)
+
+
+def newsworthy(y) -> bool:
+    """Prezident hujjati, qonun, kodeks — relevant bo'lsa har doim; Vazirlar Mahkamasi qarori — asosiy soha so'zi
+    bilan; idoraviy hujjat (qo'mita, agentlik, bank) — asosiy so'z hujjat NOMIDA bo'lsa."""
+    issuer = normalize(y["doc_type"] or "")
+    if any(t in issuer for t in TOP_ISSUERS):
+        return True
+    if "vazirlar mahkamasining qarori" in issuer:
+        return any(h in CORE_SOZLAR for h in (y["keyword_hits"] or []))
+    from app.collector.news import text_keyword_hits  # aylanma importdan qochish
+
+    return any(h in CORE_SOZLAR for h in text_keyword_hits(y["title"] or ""))
+
+
+UPDATE_HEAD = "🔄 <b>Batafsil:</b> hujjat matni Lex.uz'da e'lon qilindi"
+
+
+async def prepare_news_updates(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]:
+    """Qisqa xabari (matnsiz) yuborilgan hujjatning matni keyin chiqsa — batafsil xabar (asosiy o'zgarishlar,
+    kimga tegishli). Admin qisqa xabarni bekor qilgan bo'lsa — yo'q."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT y.* FROM yangiliklar y JOIN xabarlar x ON x.kalit = 'yangilik:' || y.lex_id
+            WHERE x.holat IN ('tasdiqlandi', 'yuborildi') AND x.matn LIKE '%' || $1 || '%'
+              AND x.created_at >= now() - interval '30 days'
+              AND NOT EXISTS (SELECT 1 FROM xabarlar b WHERE b.kalit = 'yangilik-batafsil:' || y.lex_id)
+              AND EXISTS (SELECT 1 FROM elementlar e JOIN hujjatlar h ON h.id = e.document_id
+                          WHERE h.lex_id = y.lex_id)
+            """,
+            NO_TEXT_NOTE,
+        )
+    ids = []
+    for y in rows:
+        try:
+            async with pool.acquire() as conn:
+                draft = await build_news_draft(conn, y, llm, require_ai=settings.news_require_ai,
+                                               text_wait_days=settings.news_text_wait_days)
+                if draft is None or not draft.matn or NO_TEXT_NOTE in draft.matn:  # matn hali to'liq emas
+                    continue
+                draft.kalit = f"yangilik-batafsil:{y['lex_id']}"
+                draft.matn = f"{UPDATE_HEAD}\n\n{draft.matn}"
+                xid = await save_draft(conn, draft)
+            if xid:
+                ids.append(xid)
+        except Exception:
+            log.error("news update draft failed lex_id=%s", y["lex_id"], exc_info=True)
+    return ids
+
+
 async def prepare_news(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]:
     """Yangi relevant RSS hujjatlari uchun xabar (bir hujjat — bir xabar)."""
     async with pool.acquire() as conn:
@@ -298,6 +359,8 @@ async def prepare_news(pool: asyncpg.Pool, llm, settings: Settings) -> list[int]
         )
     ids, skipped = [], 0
     for y in rows:
+        if not newsworthy(y):
+            continue
         try:
             async with pool.acquire() as conn:
                 draft = await build_news_draft(conn, y, llm, require_ai=settings.news_require_ai,
@@ -604,6 +667,7 @@ async def publish(bot: Bot, pool: asyncpg.Pool, settings: Settings, llm) -> None
     if not is_daytime(settings):
         return
     await prepare_news(pool, llm, settings)
+    await prepare_news_updates(pool, llm, settings)
     await prepare_changes(pool)
     await notify_admins(bot, pool, settings)
     await send_approved(bot, pool, settings)

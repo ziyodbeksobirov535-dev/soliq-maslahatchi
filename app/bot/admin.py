@@ -9,7 +9,7 @@ Callback: `a:<bo'lim>`, `a:show:<xabar_id>`.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import asyncpg
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -76,3 +76,43 @@ async def news_overview(conn: asyncpg.Connection) -> tuple[str, InlineKeyboardMa
     rows = [[InlineKeyboardButton(text=f"#{p['id']} · {'yangilik' if p['turi'] == 'yangilik' else 'o‘zgarish'}",
                                   callback_data=f"a:show:{p['id']}")] for p in pending]
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+STATUS_LABELS = {"answered": "javob berildi", "sources_only": "faqat manbalar (AI ishlamadi)",
+                 "insufficient": "ma'lumot yetarli emas", "not_found": "topilmadi",
+                 "needs_clarification": "aniqlashtirish so'raldi", "historical_unavailable": "tarixiy savol",
+                 "limit_exceeded": "limit tugagan", "error": "xato"}
+
+
+async def daily_report(conn: asyncpg.Connection, now: datetime) -> str:
+    """Oxirgi 24 soat: savollar natijasi, foydalanuvchilar, tezlik, baholar, kesh, kutayotgan xabarlar."""
+    since = now - timedelta(hours=24)
+    by_status = {r["status"] or "—": r["n"] for r in await conn.fetch(
+        "SELECT status, count(*) AS n FROM suhbatlar WHERE created_at >= $1 GROUP BY status ORDER BY 2 DESC", since)}
+    s = await conn.fetchrow(
+        """
+        SELECT count(DISTINCT telegram_id) AS users,
+               avg(processing_ms) FILTER (WHERE status = 'answered' AND processing_ms > 0) AS avg_ms,
+               count(*) FILTER (WHERE rating = 1) AS plus, count(*) FILTER (WHERE rating = -1) AS minus,
+               count(*) FILTER (WHERE model LIKE 'kesh:%') AS cached
+        FROM suhbatlar WHERE created_at >= $1
+        """, since)
+    new_users = await conn.fetchval("SELECT count(*) FROM foydalanuvchilar WHERE created_at >= $1", since)
+    pending = await conn.fetchval("SELECT count(*) FROM xabarlar WHERE holat = 'kutilmoqda'")
+    total = sum(by_status.values())
+    lines = [f"<b>📋 Kunlik hisobot</b> ({since.strftime('%d.%m %H:%M')} — {now.strftime('%d.%m %H:%M')})", "",
+             f"Savollar: <b>{total}</b> · foydalanuvchilar: {s['users']} (yangi: {new_users})"]
+    lines += [f"• {STATUS_LABELS.get(k, k)}: {n}" for k, n in by_status.items()]
+    if s["avg_ms"]:
+        lines.append(f"O'rtacha javob vaqti: {s['avg_ms'] / 1000:.0f} s")
+    if s["cached"]:
+        lines.append(f"Keshdan berildi: {s['cached']}")
+    lines.append(f"Baholar: 👍 {s['plus']} · 👎 {s['minus']}")
+    problems = by_status.get("sources_only", 0) + by_status.get("error", 0)
+    if problems:
+        lines.append(f"⚠️ AI ishlamagan/xato: {problems} — kalit limiti yoki provayderni tekshiring")
+    if pending:
+        lines.append(f"📰 Tasdiq kutayotgan xabarlar: {pending} — /admin")
+    if s["minus"] or by_status.get("not_found") or by_status.get("insufficient"):
+        lines.append("Batafsil: /admin → 👎 Salbiy baholar, ❓ Javobsiz savollar")
+    return "\n".join(lines)
