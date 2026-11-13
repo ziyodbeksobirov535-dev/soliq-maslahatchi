@@ -762,3 +762,17 @@ matni hali o'zgartirilmagan.
 - Kunlik hisobot (20:05, adminlarga): oxirgi 24 soat — savollar natija bo'yicha, foydalanuvchilar (yangi),
   o'rtacha javob vaqti, keshdan, 👍/👎, AI ishlamagan holatlar, tasdiq kutayotgan xabarlar.
 - Testlar: 549 passed.
+
+### Marketolog AI uchun eksport, yangi bot tokeni (2026-11-13..14)
+- Eski bot egasidan chiqib ketdi → yangi token (@soliqmaslahatchiaibot), `.env` da (eski nusxa `.cache/env.bak`).
+- Supabase 2026-10-19 dan beri o'chiq bot tufayli pauzada edi → Chrome orqali Resume (foydalanuvchi ruxsati);
+  bot qayta ishga tushdi. RSS qo'lda 3 marta: 13.10–13.11 oralig'idagi 55 relevant hujjat import, xato 0;
+  baza 549 hujjat, 84 551 element.
+- `INTEGRATION_HANDOFF.md` — Marketolog AI loyihasi uchun texnik topshiriq (inglizcha).
+- `app/export/legal_feed.py` — faqat o'qiydigan eksport `soliq.legal-feed/1.0`: `news_item`, `provision_changed`;
+  `default_transaction_read_only=on`, shaxsiy jadvallarsiz, AI'siz; `event_id` deterministik, `event_revision`
+  holati `.cache/legal_feed_state.json` da; `.sha256` + atomar `.jsonl`, 18 MB dan katta bo'lsa bo'laklarga.
+  Jonli sinov (scratch papkaga): 8 hodisa, Marketolog `packets.validate` — 8/8 qabul.
+- Tuzatildi: matnsiz yangilik kutish muddati UTC sanasini Toshkent sanasi bilan solishtirardi (yarim tunga yaqin
+  bir kun xato) — endi ikkalasi Toshkent vaqtida.
+- Testlar: 556 passed.

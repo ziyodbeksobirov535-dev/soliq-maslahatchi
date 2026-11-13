@@ -26,6 +26,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import asyncpg
 from aiogram import Bot
@@ -33,12 +34,14 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 
+import lexuz
 from app.ai.client import LLMError, Usage
 from app.bot.formatting import esc, link
 from app.config import Settings
 from app.retrieval.query import normalize
 
 log = logging.getLogger(__name__)
+TASHKENT = ZoneInfo("Asia/Tashkent")
 
 NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
 MAX_POINTS = 3
@@ -188,8 +191,9 @@ async def build_news_draft(conn: asyncpg.Connection, y, llm, *, require_ai: bool
     draft = Draft("yangilik", f"yangilik:{y['lex_id']}", y["lex_id"], "", y["url"], "matndan")
     if not rows:
         published = y["pub_date"] or y["created_at"]
-        published = published.date() if hasattr(published, "date") else published
-        if ((today or date.today()) - published).days < text_wait_days:
+        # Ikkala sana ham Toshkent vaqtida (UTC sanasi yarim tunga yaqin bir kun farq qiladi)
+        published = published.astimezone(TASHKENT).date() if hasattr(published, "astimezone") else published
+        if ((today or lexuz.today_tashkent()) - published).days < text_wait_days:
             return None  # matn chiqishini kutamiz
         draft.matn = f"{render_news(y, [], kimga=soha_labels(y['keyword_hits']))}\n\n{NO_TEXT_NOTE}\n{y['url']}"
         draft.usul = "matndan"  # AI'siz (bazadagi CHECK: llm | matndan)
