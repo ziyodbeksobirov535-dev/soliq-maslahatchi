@@ -1,6 +1,8 @@
 """APScheduler (Asia/Tashkent): collector job'lari bot bilan bitta jarayonda.
 
 - 07:10, 12:10, 17:10 — RSS (kuniga 3 marta — yangilik tezroq aniqlansin)
+- bot ishga tushganda (1 daqiqadan keyin) — RSS, agar oxirgi yig'ishdan 2 soatdan ko'p o'tgan bo'lsa
+  (bot o'chiq turgan vaqtdagi yangiliklar o'tkazib yuborilmasin; tez-tez qayta ishga tushirishda Lex.uz'ga yuklama yo'q)
 - 07:40 — kuchga kirish sanasi kelgan hujjatlarni qayta tekshirish
 - Yakshanba 03:20 — kuzatiladigan hujjatlarni to'liq yangilash (asosiy + RSS/qidiruvdan topilganlar)
 - Shanba 04:10 — Lex.uz qidiruvi: amaldagi eski hujjatlar ro'yxati
@@ -16,14 +18,16 @@ Job ichidagi xato scheduler'ni to'xtatmaydi; bir vaqtda bitta nusxa (max_instanc
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.bot.admin import daily_report
-from app.collector.jobs import discover_job, future_recheck_job, import_found_job, rss_job, weekly_refresh_job
+from app.collector.jobs import (discover_job, future_recheck_job, import_found_job, rss_due, rss_job,
+                               weekly_refresh_job)
 from app.config import Settings
 from app.health import write_heartbeat
 from app.services import kalendar
@@ -31,6 +35,8 @@ from app.services.xabarlar import is_daytime, publish
 from app.utils.logging import request_context
 
 log = logging.getLogger(__name__)
+
+STARTUP_RSS_MAX_AGE_HOURS = 2
 
 
 async def publish_job(bot, pool, settings: Settings, llm) -> None:
@@ -90,6 +96,9 @@ def build_scheduler(pool, settings: Settings, llm, bot=None) -> AsyncIOScheduler
         scheduler.add_job(publish_job, IntervalTrigger(minutes=15), args=[bot, pool, settings, llm], id="publish")
         scheduler.add_job(reminders_job, CronTrigger(hour=9, minute=30, timezone=tz), args=[bot, pool, settings],
                           id="reminders")
+        if rss_due(STARTUP_RSS_MAX_AGE_HOURS):  # o'chiq turgan vaqtdagi yangiliklarni yig'ish
+            scheduler.add_job(rss_job, DateTrigger(datetime.now(tz) + timedelta(minutes=1)),
+                              args=[pool, settings, llm], id="rss_startup")
         scheduler.add_job(report_job, CronTrigger(hour=20, minute=5, timezone=tz), args=[bot, pool, settings],
                           id="daily_report")
     return scheduler

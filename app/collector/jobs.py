@@ -16,6 +16,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
+from pathlib import Path
 
 import asyncpg
 
@@ -58,11 +60,31 @@ async def refresh_vocabulary(pool: asyncpg.Pool) -> None:
         log.error("vocabulary refresh failed", exc_info=True)
 
 
+RSS_STAMP = Path(".cache/rss_last_run")
+
+
+def rss_due(max_age_hours: float, stamp: Path = RSS_STAMP) -> bool:
+    """Oxirgi muvaffaqiyatli RSS yig'ishdan max_age_hours dan ko'p vaqt o'tganmi (yoki hech yig'ilmaganmi)."""
+    try:
+        return time.time() - stamp.stat().st_mtime > max_age_hours * 3600
+    except OSError:
+        return True
+
+
+def mark_rss_done(stamp: Path = RSS_STAMP) -> None:
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.touch()
+    except OSError:
+        log.warning("rss stamp not written path=%s", stamp)
+
+
 async def rss_job(pool: asyncpg.Pool, settings: Settings, llm) -> None:
     with request_context():
         try:
             with make_lexuz_client(settings) as client:
                 stats = await process_rss(pool, client, llm, lexuz.today_tashkent())
+            mark_rss_done()
             if stats.imported:
                 await refresh_vocabulary(pool)
         except Exception:
